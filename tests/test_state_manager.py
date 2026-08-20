@@ -4,9 +4,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from state_manager import (  # noqa: E402
+from lib.state_manager import (  # noqa: E402
     actionable_stages,
     init_state,
     read_state,

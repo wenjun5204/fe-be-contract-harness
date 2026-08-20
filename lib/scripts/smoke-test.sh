@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 冒烟测试入口。
-# M0 阶段:manifest 校验 + workflow_fsm 自测;后续阶段接入契约一致性 / 四栈适配冒烟。
+# M0/M1:manifest 校验 + FSM/state/parser/codegen 自测。
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -11,4 +11,8 @@ echo "==> workflow_fsm 自测..."
 python3 tests/test_workflow_fsm.py
 echo "==> state_manager 自测..."
 python3 tests/test_state_manager.py
+echo "==> parser 自测..."
+python3 tests/test_parser.py
+echo "==> codegen 自测..."
+python3 tests/test_codegen.py
 echo "==> Smoke test OK"

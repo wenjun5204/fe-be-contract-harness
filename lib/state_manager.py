@@ -22,6 +22,9 @@ from typing import List, Optional
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DAG_PATH = REPO_ROOT / "lib" / "workflow-dag.json"
 
+# 使 `python3 lib/state_manager.py` 直接执行时也能以包形式 import lib.*
+sys.path.insert(0, str(REPO_ROOT))
+
 # 终态(与 workflow_fsm.py 的 TERMINAL 保持一致)
 TERMINAL = {"completed", "skipped"}
 
@@ -93,7 +96,7 @@ def _stage_states(state: dict) -> dict:
 def actionable_stages(state_file: Path) -> List[str]:
     """计算当前可推进的阶段:非终态 + 所有前置均终态(经 FSM 汇合校验)。"""
     state = read_state(state_file)
-    from workflow_fsm import WorkflowFSM  # 延迟导入,避免模块加载顺序问题
+    from lib.workflow_fsm import WorkflowFSM  # 延迟导入,避免模块加载顺序问题
 
     fsm = WorkflowFSM()
     st = _stage_states(state)
