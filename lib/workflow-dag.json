@@ -1,0 +1,105 @@
+{
+  "$schema": "https://harness.dev/schemas/workflow-dag-v1.json",
+  "version": "0.1.0",
+  "description": "前后端契约驱动 SDLC 11 阶段 DAG(Stage 5A/5B 前后端并行,Stage 7/8 提交与测试用例并行)",
+  "stage_graph": {
+    "0": {
+      "name": "初始化",
+      "semantic_id": "init",
+      "next": ["1"],
+      "checkpoint": "none",
+      "required_outputs": ["execution_plan"]
+    },
+    "1": {
+      "name": "需求分析",
+      "semantic_id": "requirements",
+      "next": ["2"],
+      "checkpoint": "mandatory_review",
+      "required_outputs": ["requirements_doc"]
+    },
+    "2": {
+      "name": "接口契约设计",
+      "semantic_id": "contract",
+      "next": ["3"],
+      "checkpoint": "mandatory_review",
+      "required_outputs": ["openapi_contract"]
+    },
+    "3": {
+      "name": "仓库识别与技术方案",
+      "semantic_id": "tech_plan",
+      "next": ["4"],
+      "checkpoint": "mandatory_review",
+      "required_outputs": ["confirmed_repos", "design_doc"]
+    },
+    "4": {
+      "name": "分支管理",
+      "semantic_id": "branch",
+      "next": ["5A", "5B"],
+      "checkpoint": "none",
+      "required_outputs": ["branch_name"]
+    },
+    "5A": {
+      "name": "后端实现",
+      "semantic_id": "backend_impl",
+      "kind": "backend",
+      "next": ["6"],
+      "checkpoint": "none",
+      "required_outputs": ["changed_files", "coverage"]
+    },
+    "5B": {
+      "name": "前端实现",
+      "semantic_id": "frontend_impl",
+      "kind": "frontend",
+      "next": ["6"],
+      "checkpoint": "none",
+      "required_outputs": ["changed_files", "coverage"]
+    },
+    "6": {
+      "name": "前后端一致性校验",
+      "semantic_id": "consistency",
+      "next": ["7", "8"],
+      "checkpoint": "mandatory_review",
+      "required_outputs": ["consistency_report"]
+    },
+    "7": {
+      "name": "提交与 PR",
+      "semantic_id": "pr",
+      "next": ["9"],
+      "checkpoint": "artifact_review",
+      "required_outputs": ["pr_url"]
+    },
+    "8": {
+      "name": "测试用例生成",
+      "semantic_id": "testcases",
+      "next": ["9"],
+      "checkpoint": "artifact_review",
+      "required_outputs": ["test_cases"]
+    },
+    "9": {
+      "name": "提测与部署",
+      "semantic_id": "deploy",
+      "next": ["10"],
+      "checkpoint": "artifact_review",
+      "required_outputs": ["deploy_result"]
+    },
+    "10": {
+      "name": "交付报告",
+      "semantic_id": "delivery",
+      "next": [],
+      "checkpoint": "artifact_review",
+      "required_outputs": ["delivery_report"]
+    }
+  },
+  "parallel_groups": {
+    "impl": {
+      "branches": ["5A", "5B"],
+      "join_at": "6",
+      "description": "前后端并行实现,Stage 6 汇合校验"
+    },
+    "delivery": {
+      "branches": ["7", "8"],
+      "join_at": "9",
+      "description": "提交/PR 与测试用例生成并行,Stage 9 提测汇合"
+    }
+  }
+}
