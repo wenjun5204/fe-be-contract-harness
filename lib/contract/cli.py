@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from lib.contract.generator import generate, write_out  # noqa: E402
 from lib.contract.verify import verify  # noqa: E402
+from lib.contract.consistency import cross_stack_check, drift_check  # noqa: E402
 from lib.stack.adapter import available  # noqa: E402
 
 
@@ -39,6 +40,14 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     sub.add_parser("stacks", help="列出可用技术栈")
 
+    c = sub.add_parser("check", help="跨栈一致性校验")
+    c.add_argument("contract")
+
+    d = sub.add_parser("drift", help="契约漂移检测(与磁盘产物对比)")
+    d.add_argument("contract")
+    d.add_argument("--stack", required=True)
+    d.add_argument("--gen-dir", required=True)
+
     args = p.parse_args(argv)
 
     if args.cmd == "generate":
@@ -50,6 +59,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0 if result["ok"] else 1
     elif args.cmd == "stacks":
         print(json.dumps(available(), ensure_ascii=False))
+    elif args.cmd == "check":
+        result = cross_stack_check(args.contract)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["ok"] else 1
+    elif args.cmd == "drift":
+        result = drift_check(args.contract, args.stack, args.gen_dir)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["ok"] else 1
     else:
         p.print_help()
         return 1

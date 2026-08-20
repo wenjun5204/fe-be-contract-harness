@@ -15,4 +15,6 @@ echo "==> parser 自测..."
 python3 tests/test_parser.py
 echo "==> codegen 自测..."
 python3 tests/test_codegen.py
+echo "==> consistency 自测..."
+python3 tests/test_consistency.py
 echo "==> Smoke test OK"

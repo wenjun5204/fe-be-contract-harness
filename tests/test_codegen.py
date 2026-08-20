@@ -14,7 +14,7 @@ EXAMPLE = Path(__file__).resolve().parent.parent / "examples" / "petstore.yaml"
 
 def test_available_stacks():
     stacks = available()
-    assert "react" in stacks and "node" in stacks, stacks
+    assert set(stacks) == {"react", "vue", "node", "java"}, stacks
 
 
 def test_react_generate():
@@ -49,8 +49,28 @@ def test_node_generate():
     assert "@Get('/:petId')" in ctrl
 
 
+def test_vue_generate():
+    files = generate(EXAMPLE, "vue")
+    assert "src/types/api.ts" in files
+    assert "src/api/client.ts" in files
+    assert "interface Pet" in files["src/types/api.ts"]
+    assert "getPetById(petId: string)" in files["src/api/client.ts"]
+
+
+def test_java_generate():
+    files = generate(EXAMPLE, "java")
+    assert "src/main/java/dto/Pet.java" in files
+    assert "src/main/java/dto/CreatePet.java" in files
+    assert "src/main/java/controller/PetsController.java" in files
+    ctrl = files["src/main/java/controller/PetsController.java"]
+    assert "listPets" in ctrl and "createPet" in ctrl and "getPetById" in ctrl
+    assert "List<Pet>" in ctrl  # 数组 → List<Pet>
+    assert "@PostMapping" in ctrl and "@GetMapping" in ctrl
+    assert "private String name;" in files["src/main/java/dto/Pet.java"]
+
+
 def test_verify_gate():
-    for stack in ("react", "node"):
+    for stack in ("react", "vue", "node", "java"):
         r = verify(EXAMPLE, stack)
         assert r["ok"], r
         assert r["idempotent"], r
@@ -61,8 +81,10 @@ def main():
     test_available_stacks()
     test_react_generate()
     test_node_generate()
+    test_vue_generate()
+    test_java_generate()
     test_verify_gate()
-    print("OK: codegen 自测通过(4 组断言)")
+    print("OK: codegen 自测通过(6 组断言)")
 
 
 if __name__ == "__main__":

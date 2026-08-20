@@ -50,7 +50,9 @@ def register(cls):
 def _load_builtin() -> None:
     if not _REGISTRY:
         from lib.stack.react.adapter import ReactStackAdapter  # noqa: F401
+        from lib.stack.vue.adapter import VueStackAdapter  # noqa: F401
         from lib.stack.node.adapter import NodeStackAdapter  # noqa: F401
+        from lib.stack.java.adapter import JavaStackAdapter  # noqa: F401
 
 
 def get_adapter(name: str) -> StackAdapter:
