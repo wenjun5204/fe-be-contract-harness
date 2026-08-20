@@ -1,7 +1,7 @@
 {
   "$schema": "https://harness.dev/schemas/workflow-dag-v1.json",
   "version": "0.1.0",
-  "description": "前后端契约驱动 SDLC 11 阶段 DAG(Stage 5A/5B 前后端并行,Stage 7/8 提交与测试用例并行)",
+  "description": "前后端契约驱动 SDLC 12 阶段 DAG(Stage 0-10,Stage 5 拆为 5A/5B 前后端并行;Stage 7/8 提交与测试用例并行)",
   "stage_graph": {
     "0": {
       "name": "初始化",

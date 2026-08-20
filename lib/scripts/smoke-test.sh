@@ -9,4 +9,6 @@ echo "==> Smoke test (M0)..."
 bash lib/validate-manifest.sh
 echo "==> workflow_fsm 自测..."
 python3 tests/test_workflow_fsm.py
+echo "==> state_manager 自测..."
+python3 tests/test_state_manager.py
 echo "==> Smoke test OK"

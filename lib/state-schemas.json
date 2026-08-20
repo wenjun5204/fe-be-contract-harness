@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "lib/state-schemas.json",
+  "title": "fe-be-contract-harness pipeline state",
+  "description": "pipeline 状态文件(state.json)结构定义,由 lib/state_manager.py 读写",
+  "type": "object",
+  "required": ["change_id", "workflow_source", "stages"],
+  "properties": {
+    "change_id": { "type": "string" },
+    "workflow_source": { "type": "string", "const": "local" },
+    "current_stage": { "type": ["string", "null"] },
+    "created_at": { "type": "string" },
+    "updated_at": { "type": "string" },
+    "stages": {
+      "type": "object",
+      "description": "stage_id -> 阶段状态与产出",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["state", "outputs"],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "checkpoint_pending",
+              "interaction_waiting",
+              "checkpoint_confirmed",
+              "completed",
+              "skipped",
+              "failed"
+            ]
+          },
+          "outputs": { "type": "object" },
+          "updated_at": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}

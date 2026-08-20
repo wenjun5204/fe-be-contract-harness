@@ -9,6 +9,8 @@ FILES=(
   "harness-manifest.json"
   "openclaw.plugin.json"
   "package.json"
+  "lib/workflow-dag.json"
+  "lib/state-schemas.json"
 )
 
 echo "==> Validating manifest JSON files..."
