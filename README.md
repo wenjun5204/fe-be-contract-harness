@@ -18,16 +18,36 @@
 
 ## 当前状态
 
-处于 **M0(仓库骨架)** 阶段。本仓库目前只有目录骨架、元文件与最小校验脚本,核心能力(契约驱动生成、四栈适配、一致性门控)尚未实现。
+已完成 **M0–M3**:仓库骨架、状态机/断点续跑、OpenAPI 契约解析、四栈(React/Vue/Java/Node)代码生成、G1 生成门、跨栈一致性校验与漂移检测。M4(评审/测试/部署/报告 + 多平台)尚未开始。
+
+## 契约驱动生成用法
+
+```bash
+# 从契约生成指定技术栈的代码骨架
+python3 lib/contract/cli.py generate examples/petstore.yaml --stack node --out gen/node
+python3 lib/contract/cli.py generate examples/petstore.yaml --stack react --out gen/react
+
+# G1 生成门校验(幂等 + 结构忠实)
+python3 lib/contract/cli.py verify examples/petstore.yaml --stack node
+
+# 跨栈一致性校验(后端/前端三方一致)
+python3 lib/contract/cli.py check examples/petstore.yaml
+
+# 契约漂移检测(fail-closed)
+python3 lib/contract/cli.py drift examples/petstore.yaml --stack node --gen-dir gen/node
+
+# 列出可用技术栈
+python3 lib/contract/cli.py stacks
+```
 
 ## 路线图
 
 | 里程碑 | 交付物 | 状态 |
 |--------|--------|------|
-| M0 仓库骨架 | 目录骨架 + git + manifest + 最小校验 | 进行中 |
-| M1 契约驱动 | OpenAPI 解析 + 后端骨架 + 前端类型生成 | 未开始 |
-| M2 四栈适配 | 补齐 Vue + Java 适配器 | 未开始 |
-| M3 一致性门控 | consistency-checker + contract-drift-guard | 未开始 |
+| M0 仓库骨架 | 目录骨架 + git + manifest + 最小校验 | ✅ |
+| M1 契约驱动 | OpenAPI 解析 + 后端骨架 + 前端类型生成 | ✅ |
+| M2 四栈适配 | 补齐 Vue + Java 适配器 | ✅ |
+| M3 一致性门控 | consistency-checker + contract-drift-guard | ✅ |
 | M4 完整 SDLC | 评审/测试/部署/报告 + 多平台验证 | 未开始 |
 
 ## 目录结构

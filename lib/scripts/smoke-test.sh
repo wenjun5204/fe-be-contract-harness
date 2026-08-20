@@ -5,7 +5,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
-echo "==> Smoke test (M0)..."
+echo "==> Smoke test..."
 bash lib/validate-manifest.sh
 echo "==> workflow_fsm 自测..."
 python3 tests/test_workflow_fsm.py
