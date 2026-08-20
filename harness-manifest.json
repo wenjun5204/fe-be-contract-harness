@@ -1,0 +1,47 @@
+{
+  "$schema": "https://harness.dev/schemas/plugin-manifest-v1.json",
+  "api_version": "acp/v1",
+  "name": "fe-be-contract-harness",
+  "version": "0.1.0",
+  "description": "前后端契约驱动 SDLC Harness —— OpenAPI 契约驱动生成 + 前后端一致性门控 + 多平台运行",
+  "platforms": [
+    "catpaw",
+    "catclaw",
+    "claude-code",
+    "codex",
+    "openclaw",
+    "opencode"
+  ],
+  "min_runtime_version": "0.1.0",
+  "entry": {},
+  "lifecycle": {
+    "init": {
+      "description": "待实现(M0):依赖校验 + 状态目录创建 + manifest 校验"
+    },
+    "teardown": {
+      "description": "待实现(M0):释放锁 + 清理临时文件"
+    },
+    "health_check": {
+      "handler": "lib/validate-manifest.sh",
+      "description": "校验 manifest 引用完整性与 JSON 语法"
+    }
+  },
+  "capabilities": [
+    "contract_driven_codegen",
+    "fe_be_consistency_check",
+    "stack_abstraction",
+    "workflow_orchestration",
+    "code_review",
+    "hook_interception",
+    "state_persistence"
+  ],
+  "external_dependencies": {
+    "required": {
+      "python3": {
+        "check": "python3 --version",
+        "min_version": "3.8"
+      }
+    },
+    "cli_auto_install": {}
+  }
+}

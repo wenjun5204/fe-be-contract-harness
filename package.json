@@ -1,0 +1,37 @@
+{
+  "name": "fe-be-contract-harness",
+  "version": "0.1.0",
+  "private": true,
+  "description": "前后端契约驱动 SDLC Harness —— OpenAPI 契约驱动生成 + 前后端一致性门控 + 多平台运行",
+  "license": "MIT",
+  "keywords": [
+    "agent-harness",
+    "sdlc",
+    "openapi",
+    "contract-driven",
+    "codegen",
+    "frontend",
+    "backend"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "harness": {
+    "type": "plugin",
+    "manifest": "harness-manifest.json",
+    "platforms": [
+      "catpaw",
+      "catclaw",
+      "claude-code",
+      "codex",
+      "openclaw",
+      "opencode"
+    ],
+    "openclaw_plugin": "openclaw.plugin.json"
+  },
+  "scripts": {
+    "validate": "bash lib/validate-manifest.sh",
+    "test": "bash lib/scripts/smoke-test.sh",
+    "check": "npm run validate && npm test"
+  }
+}
