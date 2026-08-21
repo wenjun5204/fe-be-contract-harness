@@ -70,7 +70,20 @@
       "description": "依赖检查,缺失则提示安装"
     }
   ],
-  "skills": [],
+  "skills": [
+    {
+      "name": "fe-be-contract-workflow",
+      "path": "./skills/fe-be-contract-workflow/SKILL.md"
+    },
+    {
+      "name": "build-repo-knowledge",
+      "path": "./skills/build-repo-knowledge/SKILL.md"
+    },
+    {
+      "name": "build-domain-knowledge",
+      "path": "./skills/build-domain-knowledge/SKILL.md"
+    }
+  ],
   "agents_dir": "./agents",
   "commands_dir": "./commands",
   "lib_dir": "./lib",

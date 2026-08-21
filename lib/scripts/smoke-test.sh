@@ -39,4 +39,6 @@ echo "==> domain_knowledge 自测..."
 python3 tests/test_domain_knowledge.py
 echo "==> feasibility 自测..."
 python3 tests/test_feasibility.py
+echo "==> repo_knowledge 自测..."
+python3 tests/test_repo_knowledge.py
 echo "==> Smoke test OK"
