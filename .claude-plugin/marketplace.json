@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "fe-be-contract-harness",
+  "owner": {
+    "name": "wenjun5204"
+  },
+  "metadata": {
+    "description": "前后端契约驱动 SDLC 插件 —— OpenAPI 契约驱动生成 + 一致性门控 + 多平台运行",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "fe-be-contract-harness",
+      "source": "./",
+      "description": "以 OpenAPI 契约为唯一事实源的前后端 SDLC 自动化:契约驱动生成四栈骨架 + G1 生成门 + 跨栈一致性 + 漂移检测 + 委派/checkpoint/覆盖率门控",
+      "version": "0.1.0",
+      "category": "workflow",
+      "tags": [
+        "sdlc",
+        "openapi",
+        "contract-driven",
+        "codegen",
+        "frontend",
+        "backend"
+      ],
+      "strict": false
+    }
+  ]
+}

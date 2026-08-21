@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin.json",
+  "name": "fe-be-contract-harness",
+  "version": "0.1.0",
+  "description": "前后端契约驱动 SDLC Harness —— OpenAPI 契约驱动生成 + 前后端一致性门控 + 多平台",
+  "author": {
+    "name": "wenjun5204"
+  },
+  "repository": "https://github.com/wenjun5204/fe-be-contract-harness",
+  "license": "MIT",
+  "keywords": [
+    "sdlc",
+    "openapi",
+    "contract-driven",
+    "codegen",
+    "frontend",
+    "backend"
+  ]
+}
