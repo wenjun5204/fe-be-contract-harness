@@ -1,0 +1,30 @@
+{
+  "name": "consistency-checker",
+  "agent_type": "prompt_role",
+  "role": "前后端契约一致性校验专家",
+  "inputs": {
+    "openapi_contract": {
+      "type": "string",
+      "required": true,
+      "description": "openapi.yaml 路径"
+    },
+    "backend_changes": {
+      "type": "string",
+      "required": false,
+      "description": "后端变更文件清单/目录"
+    },
+    "frontend_changes": {
+      "type": "string",
+      "required": false,
+      "description": "前端变更文件清单/目录"
+    }
+  },
+  "outputs": {
+    "consistency_report": {
+      "type": "object",
+      "description": "{ok, path_ok, field_ok, semantic_ok, drifts}"
+    }
+  },
+  "tools": ["read_file", "bash"],
+  "prompt_file": "prompt.md"
+}

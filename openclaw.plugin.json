@@ -13,7 +13,35 @@
     "backend"
   ],
   "hooks_dir": "./hooks",
-  "hooks": [],
+  "hooks": [
+    {
+      "name": "session-start",
+      "path": "./hooks/session-start",
+      "events": ["session_start", "before_agent_start"],
+      "description": "注入 harness 上下文与契约规则"
+    },
+    {
+      "name": "contract-drift-guard",
+      "path": "./hooks/contract-drift-guard",
+      "events": ["tool:before"],
+      "match": { "tool_name": ["commit", "git_commit", "push", "git_push"] },
+      "description": "提交前契约漂移 fail-closed 校验"
+    },
+    {
+      "name": "delegation-guard",
+      "path": "./hooks/delegation-guard",
+      "events": ["tool:before"],
+      "match": { "tool_name": ["todo_write", "update_plan"] },
+      "description": "子 Agent 委派 fail-closed 校验"
+    },
+    {
+      "name": "checkpoint-guard",
+      "path": "./hooks/checkpoint-guard",
+      "events": ["tool:before"],
+      "match": { "tool_name": ["todo_write", "update_plan"] },
+      "description": "阶段卡点校验,防止跳过 mandatory_review"
+    }
+  ],
   "skills": [],
   "agents_dir": "./agents",
   "commands_dir": "./commands",

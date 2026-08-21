@@ -1,0 +1,30 @@
+{
+  "name": "contract-designer",
+  "agent_type": "prompt_role",
+  "role": "接口契约设计专家",
+  "inputs": {
+    "requirement_document": {
+      "type": "string",
+      "required": true,
+      "description": "结构化需求文档"
+    },
+    "existing_contract": {
+      "type": "string",
+      "required": false,
+      "description": "已有 openapi.yaml 路径(增量变更时)"
+    }
+  },
+  "outputs": {
+    "openapi_contract": {
+      "type": "string",
+      "description": "生成的 openapi.yaml 路径"
+    },
+    "contract_summary": {
+      "type": "object",
+      "description": "端点/模型清单摘要"
+    }
+  },
+  "tools": ["read_file", "write"],
+  "agents": ["contract-reviewer"],
+  "prompt_file": "prompt.md"
+}

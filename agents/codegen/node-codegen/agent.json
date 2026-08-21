@@ -1,0 +1,24 @@
+{
+  "name": "node-codegen",
+  "agent_type": "prompt_role",
+  "role": "Node(Nest) 代码生成器",
+  "inputs": {
+    "openapi_contract": {
+      "type": "string",
+      "required": true,
+      "description": "openapi.yaml 路径"
+    }
+  },
+  "outputs": {
+    "generated_files": {
+      "type": "object",
+      "description": "生成的文件清单"
+    },
+    "manifest": {
+      "type": "object",
+      "description": "codegen-manifest.json 内容"
+    }
+  },
+  "tools": ["bash", "write"],
+  "prompt_file": "prompt.md"
+}

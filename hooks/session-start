@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# session-start:会话开始时注入 harness 上下文与契约规则(设计文档 §8.1)。
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+cat <<'EOF'
+fe-be-contract-harness: 契约驱动 SDLC 已就绪
+- openapi.yaml 是前后端唯一事实源(SSOT)
+- 前后端从契约生成骨架,Stage 6 一致性校验
+- 接口变更走契约 diff + Stage 2 checkpoint 重新签字
+- 覆盖率 ≥60% + 契约一致性双门控(fail-closed)
+- 子 Agent 隔离:主 Agent 只调度,契约是跨子 Agent 唯一接口
+EOF

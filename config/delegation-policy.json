@@ -1,0 +1,20 @@
+{
+  "$schema": "https://harness.dev/schemas/delegation-policy-v1.json",
+  "version": "1",
+  "receipt_schema": "stage-subagent/v1",
+  "required_stages": ["0", "1", "2", "3", "4", "5A", "5B", "6", "7", "8", "9", "10"],
+  "stage_subagent": {
+    "0": "orchestrator/init",
+    "1": "orchestrator/requirements-analyst",
+    "2": "contract/contract-designer",
+    "3": "orchestrator/services-analyst",
+    "4": "orchestrator/git-client",
+    "5A": "codegen/node-codegen",
+    "5B": "codegen/react-codegen",
+    "6": "contract/consistency-checker",
+    "7": "quality/code-review",
+    "8": "quality/test-case-generator",
+    "9": "orchestrator/deployer",
+    "10": "orchestrator/notifier"
+  }
+}

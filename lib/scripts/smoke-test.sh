@@ -17,4 +17,10 @@ echo "==> codegen 自测..."
 python3 tests/test_codegen.py
 echo "==> consistency 自测..."
 python3 tests/test_consistency.py
+echo "==> delegation 自测..."
+python3 tests/test_delegation.py
+echo "==> checkpoint 自测..."
+python3 tests/test_checkpoint.py
+echo "==> coverage_gate 自测..."
+python3 tests/test_coverage_gate.py
 echo "==> Smoke test OK"

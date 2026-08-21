@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""checkpoint-guard:阶段卡点校验(设计文档 §10)。
+
+用法:
+    checkpoint-guard <stage_id> [response]
+    response: approve/confirm/ok/yes | skip | 其他(视为 revise)
+
+退出码:0 放行(无卡点 / approve / 合法 skip);1 阻断(revise / 非法 skip);2 参数错误
+"""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from lib.checkpoint_manager import decide  # noqa: E402
+
+
+def main(argv=None) -> int:
+    argv = argv if argv is not None else sys.argv[1:]
+    if len(argv) < 1:
+        print("usage: checkpoint-guard <stage_id> [response]", file=sys.stderr)
+        return 2
+    stage = argv[0]
+    response = argv[1] if len(argv) > 1 else ""
+    res = decide(stage, response)
+    print(json.dumps(res, ensure_ascii=False, indent=2))
+    if res["decision"] in (None, "approve", "skip") and res["ok"]:
+        return 0
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

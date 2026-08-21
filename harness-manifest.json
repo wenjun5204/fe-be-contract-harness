@@ -16,7 +16,7 @@
   "entry": {},
   "lifecycle": {
     "init": {
-      "description": "待实现(M0):依赖校验 + 状态目录创建 + manifest 校验"
+      "description": "依赖校验 + 状态目录创建 + manifest 校验(hook 入口见 hooks/)"
     },
     "teardown": {
       "description": "待实现(M0):释放锁 + 清理临时文件"
@@ -33,7 +33,11 @@
     "workflow_orchestration",
     "code_review",
     "hook_interception",
-    "state_persistence"
+    "state_persistence",
+    "checkpoint_management",
+    "coverage_gate",
+    "delegation_protocol",
+    "contract_drift_guard"
   ],
   "external_dependencies": {
     "required": {

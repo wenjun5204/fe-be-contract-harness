@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# 契约漂移守卫(设计文档 §8.2):提交前 fail-closed。
+# 用法: contract-drift-guard <contract> <stack> <gen-dir>
+# 退出码:0 无漂移放行;1 漂移阻断;2 参数错误
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+CONTRACT="${1:-}"
+STACK="${2:-}"
+GEN_DIR="${3:-}"
+
+if [ -z "$CONTRACT" ] || [ -z "$STACK" ] || [ -z "$GEN_DIR" ]; then
+  echo "usage: contract-drift-guard <contract> <stack> <gen-dir>" >&2
+  exit 2
+fi
+
+python3 lib/contract/cli.py drift "$CONTRACT" --stack "$STACK" --gen-dir "$GEN_DIR"
