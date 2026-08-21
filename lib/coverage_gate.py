@@ -8,7 +8,11 @@
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Dict, Optional
+
+CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "coverage-config.json"
 
 DEFAULT_THRESHOLDS = {
     "changed_line": 60,
@@ -17,12 +21,24 @@ DEFAULT_THRESHOLDS = {
 }
 
 
+def load_coverage_config() -> dict:
+    """从 config/coverage-config.json 读取硬阈值;缺失或 disabled 时回退默认值。"""
+    try:
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        if data.get("enabled", True):
+            return data.get("hard_threshold", DEFAULT_THRESHOLDS)
+    except (OSError, json.JSONDecodeError):
+        pass
+    return DEFAULT_THRESHOLDS
+
+
 def check_coverage(report: dict, thresholds: Optional[dict] = None) -> dict:
     """report 形如 {"changed_line": 55.0, "new_file": None, "delta_drop": 1.2}。
 
     值为 None 表示该指标不适用,跳过判定。返回 {"ok", "problems", "thresholds"}。
+    阈值优先用传入的 thresholds,否则从 config/coverage-config.json 加载。
     """
-    t = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
+    t = {**load_coverage_config(), **(thresholds or {})}
     problems = []
 
     cl = report.get("changed_line")

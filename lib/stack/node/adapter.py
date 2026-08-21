@@ -26,6 +26,7 @@ class NodeStackAdapter(StackAdapter):
     TEST = ["jest"]
     COVERAGE = "jest --coverage"
     MARKERS = ["nest-cli.json", "src/main.ts"]
+    DEPLOY = ["container"]
 
     def generate(self, model: dict) -> List[GeneratedFile]:
         schemas = model.get("schemas", {})

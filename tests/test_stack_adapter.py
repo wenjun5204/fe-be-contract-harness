@@ -24,6 +24,14 @@ def test_commands():
         assert a.coverage_command(), name
         assert lint_sig in " ".join(a.lint_commands()), name
         assert cov_sig in a.coverage_command(), name
+        assert a.deploy_adapters(), name
+
+
+def test_deploy():
+    assert get_adapter("react").deploy_adapters() == ["static"]
+    assert get_adapter("vue").deploy_adapters() == ["static"]
+    assert get_adapter("node").deploy_adapters() == ["container"]
+    assert get_adapter("java").deploy_adapters() == ["container"]
 
 
 def test_detect():
@@ -40,7 +48,8 @@ def test_detect():
 def main():
     test_commands()
     test_detect()
-    print("OK: stack_adapter 自测通过(2 组断言)")
+    test_deploy()
+    print("OK: stack_adapter 自测通过(3 组断言)")
 
 
 if __name__ == "__main__":

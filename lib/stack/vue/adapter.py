@@ -22,6 +22,7 @@ class VueStackAdapter(StackAdapter):
     TEST = ["vitest run"]
     COVERAGE = "vitest run --coverage"
     MARKERS = ["vite.config.ts", "src/App.vue"]
+    DEPLOY = ["static"]
 
     def generate(self, model: dict) -> List[GeneratedFile]:
         schemas = model.get("schemas", {})

@@ -45,6 +45,7 @@ class StackAdapter(ABC):
     TEST: List[str] = []
     COVERAGE: str = ""
     MARKERS: List[str] = []
+    DEPLOY: List[str] = []
 
     def lint_commands(self) -> List[str]:
         return list(self.LINT)
@@ -63,6 +64,10 @@ class StackAdapter(ABC):
         p = Path(repo_path)
         evidence = [m for m in self.MARKERS if (p / m).exists()]
         return {"stack": self.name, "kind": self.kind, "detected": bool(evidence), "evidence": evidence}
+
+    def deploy_adapters(self) -> List[str]:
+        """部署方式路由(static 前端静态产物 / container 后端服务容器)。"""
+        return list(self.DEPLOY)
 
 
 _REGISTRY: Dict[str, type] = {}

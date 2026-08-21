@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "hard_threshold": {
+    "changed_line": 60,
+    "new_file": 50,
+    "delta_drop": 5
+  },
+  "soft_threshold": {
+    "changed_line": null,
+    "new_file": 70,
+    "delta_drop": 2
+  },
+  "exclude_patterns": ["**/*.config.*", "**/migrations/**", "**/*.d.ts"]
+}

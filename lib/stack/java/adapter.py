@@ -45,6 +45,7 @@ class JavaStackAdapter(StackAdapter):
     TEST = ["mvn test"]
     COVERAGE = "mvn test jacoco:report"
     MARKERS = ["pom.xml", "build.gradle"]
+    DEPLOY = ["container"]
 
     def generate(self, model: dict) -> List[GeneratedFile]:
         schemas = model.get("schemas", {})

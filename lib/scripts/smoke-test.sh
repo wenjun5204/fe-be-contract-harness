@@ -29,4 +29,8 @@ echo "==> stack_adapter 自测..."
 python3 tests/test_stack_adapter.py
 echo "==> runner 自测..."
 python3 tests/test_runner.py
+echo "==> planner 自测..."
+python3 tests/test_planner.py
+echo "==> eval 评测..."
+python3 evals/run_evals.py | tail -1
 echo "==> Smoke test OK"

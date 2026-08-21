@@ -1,0 +1,37 @@
+# 契约规范(config/contract-spec.yaml)
+# 供 contract-designer / contract-reviewer 消费;命名与粒度约束可被 spectral 规则集引用。
+version: "1.0"
+
+naming:
+  path: kebab-case        # /pet-orders
+  operation_id: camelCase # listPetOrders
+  schema: PascalCase      # PetOrder
+  field: camelCase        # createdAt
+  enum_value: UPPER_SNAKE # PENDING
+
+granularity:
+  required_minimal: true   # required 只列必须字段
+  ref_over_inline: true    # 可复用 DTO 用 $ref,避免内联
+  enum_over_string: true   # 状态/类型字段用 enum 而非裸 string
+
+error_codes:
+  "400": 参数校验失败
+  "401": 未认证
+  "403": 无权限
+  "404": 资源不存在
+  "409": 冲突
+  "422": 业务校验失败
+  "500": 服务端错误
+
+conventions:
+  pagination:
+    page_param: page
+    page_size_param: pageSize
+    page_size_max: 100
+  idempotency:
+    header: Idempotency-Key
+    required_for: [POST, PUT, PATCH]
+  datetime_format: date-time
+
+# 可选:指向 spectral 规则集(.spectral.yaml);当前置 null,由 contract-reviewer 按上文检查
+spectral_ruleset: null

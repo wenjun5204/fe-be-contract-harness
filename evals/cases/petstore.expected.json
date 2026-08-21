@@ -1,0 +1,5 @@
+{
+  "routes": ["listPets", "createPet", "getPetById"],
+  "models": ["Pet", "CreatePet"],
+  "stacks": ["react", "vue", "node", "java"]
+}
