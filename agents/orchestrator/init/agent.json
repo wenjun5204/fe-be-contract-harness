@@ -1,0 +1,14 @@
+{
+  "name": "init",
+  "agent_type": "prompt_role",
+  "role": "两段式初始化器",
+  "inputs": {
+    "change_id": { "type": "string", "required": true },
+    "requirement_hint": { "type": "string", "required": false }
+  },
+  "outputs": {
+    "execution_plan": { "type": "object", "description": "默认全阶段执行计划" }
+  },
+  "tools": ["bash"],
+  "prompt_file": "prompt.md"
+}

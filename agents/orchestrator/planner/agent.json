@@ -1,0 +1,15 @@
+{
+  "name": "planner",
+  "agent_type": "prompt_role",
+  "role": "自适应路径规划器",
+  "inputs": {
+    "requirements_doc": { "type": "string", "required": true },
+    "confirmed_repos": { "type": "object", "required": false },
+    "design_doc": { "type": "string", "required": false }
+  },
+  "outputs": {
+    "execution_plan": { "type": "object", "description": "各阶段 run/skip 决策" }
+  },
+  "tools": ["read_file"],
+  "prompt_file": "prompt.md"
+}

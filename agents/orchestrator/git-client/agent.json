@@ -1,0 +1,13 @@
+{
+  "name": "git-client",
+  "agent_type": "prompt_role",
+  "role": "分支管理客户端",
+  "inputs": {
+    "confirmed_repos": { "type": "object", "required": true }
+  },
+  "outputs": {
+    "branch_name": { "type": "string" }
+  },
+  "tools": ["bash"],
+  "prompt_file": "prompt.md"
+}

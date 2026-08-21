@@ -23,4 +23,6 @@ echo "==> checkpoint 自测..."
 python3 tests/test_checkpoint.py
 echo "==> coverage_gate 自测..."
 python3 tests/test_coverage_gate.py
+echo "==> agent 完整性校验..."
+python3 lib/validate-agents.py
 echo "==> Smoke test OK"

@@ -1,0 +1,14 @@
+{
+  "name": "test-case-generator",
+  "agent_type": "prompt_role",
+  "role": "测试用例生成器",
+  "inputs": {
+    "openapi_contract": { "type": "string", "required": true },
+    "requirements_doc": { "type": "string", "required": false }
+  },
+  "outputs": {
+    "test_cases": { "type": "string", "description": "测试用例文档路径" }
+  },
+  "tools": ["read_file", "write"],
+  "prompt_file": "prompt.md"
+}

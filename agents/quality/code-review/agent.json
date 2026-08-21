@@ -1,0 +1,14 @@
+{
+  "name": "code-review",
+  "agent_type": "prompt_role",
+  "role": "代码评审专家",
+  "inputs": {
+    "changed_files": { "type": "string", "required": true },
+    "openapi_contract": { "type": "string", "required": false }
+  },
+  "outputs": {
+    "review_result": { "type": "object", "description": "{severity, issues, coverage}" }
+  },
+  "tools": ["read_file", "bash"],
+  "prompt_file": "prompt.md"
+}

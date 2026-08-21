@@ -1,0 +1,14 @@
+{
+  "name": "services-analyst",
+  "agent_type": "prompt_role",
+  "role": "仓库识别与技术方案分析师",
+  "inputs": {
+    "requirements_doc": { "type": "string", "required": true }
+  },
+  "outputs": {
+    "confirmed_repos": { "type": "object", "description": "确认的仓库清单" },
+    "design_doc": { "type": "string", "description": "技术方案路径" }
+  },
+  "tools": ["read_file", "bash"],
+  "prompt_file": "prompt.md"
+}

@@ -1,0 +1,13 @@
+{
+  "name": "notifier",
+  "agent_type": "prompt_role",
+  "role": "交付报告与通知",
+  "inputs": {
+    "all_outputs": { "type": "object", "required": true }
+  },
+  "outputs": {
+    "delivery_report": { "type": "string" }
+  },
+  "tools": ["bash"],
+  "prompt_file": "prompt.md"
+}

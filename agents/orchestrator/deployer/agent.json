@@ -1,0 +1,14 @@
+{
+  "name": "deployer",
+  "agent_type": "prompt_role",
+  "role": "部署编排器",
+  "inputs": {
+    "pr_url": { "type": "string", "required": true },
+    "branch_name": { "type": "string", "required": true }
+  },
+  "outputs": {
+    "deploy_result": { "type": "object" }
+  },
+  "tools": ["bash"],
+  "prompt_file": "prompt.md"
+}

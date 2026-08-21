@@ -1,0 +1,13 @@
+{
+  "name": "requirements-analyst",
+  "agent_type": "prompt_role",
+  "role": "需求分析专家",
+  "inputs": {
+    "requirement_description": { "type": "string", "required": true }
+  },
+  "outputs": {
+    "requirements_doc": { "type": "string", "description": "结构化需求文档路径" }
+  },
+  "tools": ["read_file", "write"],
+  "prompt_file": "prompt.md"
+}

@@ -32,6 +32,7 @@
   "scripts": {
     "validate": "bash lib/validate-manifest.sh",
     "test": "bash lib/scripts/smoke-test.sh",
-    "check": "npm run validate && npm test"
+    "check": "npm run validate && npm test",
+    "demo": "bash lib/scripts/demo-end-to-end.sh"
   }
 }
