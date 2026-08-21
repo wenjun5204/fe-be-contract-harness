@@ -66,6 +66,19 @@
 
 > 结构化 Spec 是 Stage 1 → 2 的**硬门控**(`workflow_fsm` 调 `validate_requirements_completion`),不达标无法进入契约设计。
 
+## 领域知识与可行性验证
+
+1. **模糊点识别**:用领域知识库对比 Spec,识别未覆盖的实体/字段
+   ```bash
+   python3 lib/domain_knowledge.py gaps <spec.json> --domain business
+   ```
+2. **可行性验证**:检索目标仓库,判断实体是否可落地 / 是否同名冲突
+   ```bash
+   python3 lib/feasibility.py <spec.json> <repo>
+   ```
+3. 未覆盖的模糊点 → 澄清(见 `references/CLARIFICATION_QUESTIONS.md`)或沉淀为新知识(`seed`)
+4. 同名已存在的实体 → 确认复用还是冲突,记录到 `unresolved_questions` 或 `assumptions`
+
 ## 产出
 
 - `requirements_doc`(需求文档路径)
