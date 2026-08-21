@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Agent 完整性校验:delegation-policy.json 引用的每个 subagent 都有 agent.json + prompt.md。
+"""Agent 完整性校验:delegation-policy.json 引用的 subagent + agents/ 下所有 agent 目录
+都必须有 agent.json + prompt.md。
 
 运行:python3 lib/validate-agents.py(退出码 0=完整,1=缺失)
 """
@@ -12,13 +13,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 AGENTS_DIR = REPO_ROOT / "agents"
 POLICY_PATH = REPO_ROOT / "config" / "delegation-policy.json"
-
-# 不在 stage_subagent 映射里、但作为完整 agent 集应有的定义
-EXTRA_AGENTS = [
-    "codegen/vue-codegen",
-    "codegen/java-codegen",
-    "orchestrator/planner",
-]
 
 
 def check_agent(subagent: str) -> dict:
@@ -41,13 +35,21 @@ def validate() -> dict:
     problems = []
     checked = []
 
+    # 1. policy 引用的 stage_subagent
     for stage, subagent in sorted(subagents.items()):
         r = check_agent(subagent)
         checked.append({"stage": stage, "subagent": subagent, "ok": r["ok"]})
         if not r["ok"]:
             problems.append(f"Stage {stage} ({subagent}): {r['reason']}")
 
-    for subagent in EXTRA_AGENTS:
+    # 2. 扫描 agents/ 下所有 agent 目录(agents/<layer>/<name>/)
+    seen = {c["subagent"] for c in checked}
+    for agent_dir in sorted(AGENTS_DIR.glob("*/*")):
+        if not agent_dir.is_dir():
+            continue
+        subagent = str(agent_dir.relative_to(AGENTS_DIR))
+        if subagent in seen:
+            continue
         r = check_agent(subagent)
         checked.append({"stage": None, "subagent": subagent, "ok": r["ok"]})
         if not r["ok"]:

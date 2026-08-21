@@ -40,6 +40,34 @@
       "events": ["tool:before"],
       "match": { "tool_name": ["todo_write", "update_plan"] },
       "description": "阶段卡点校验,防止跳过 mandatory_review"
+    },
+    {
+      "name": "pre-edit-guard",
+      "path": "./hooks/pre-edit-guard",
+      "events": ["tool:before"],
+      "match": { "tool_name": ["Edit", "Write", "MultiEdit", "write", "string_replace"] },
+      "description": "保护契约与生成区文件不被未授权编辑"
+    },
+    {
+      "name": "coverage-guard",
+      "path": "./hooks/coverage-guard",
+      "events": ["tool:before"],
+      "match": { "tool_name": ["commit", "git_commit", "push", "git_push"] },
+      "description": "提交前覆盖率门控"
+    },
+    {
+      "name": "stage-completed",
+      "path": "./hooks/stage-completed",
+      "events": ["tool:after"],
+      "match": { "tool_name": ["todo_write", "update_plan"] },
+      "description": "阶段完成 → DAG 路由下一阶段"
+    },
+    {
+      "name": "dep-guard",
+      "path": "./hooks/dep-guard",
+      "events": ["tool:after"],
+      "match": { "tool_name": ["Bash", "run_terminal_cmd"] },
+      "description": "依赖检查,缺失则提示安装"
     }
   ],
   "skills": [],

@@ -1,0 +1,13 @@
+{
+  "name": "subagent-driven-development",
+  "agent_type": "prompt_role",
+  "role": "子代理驱动开发调度器",
+  "inputs": {
+    "tasks": { "type": "object", "required": true },
+    "openapi_contract": { "type": "string", "required": true }
+  },
+  "outputs": { "changed_files": { "type": "object" } },
+  "tools": ["bash"],
+  "agents": ["codegen/node-codegen", "codegen/react-codegen", "codegen/vue-codegen", "codegen/java-codegen"],
+  "prompt_file": "prompt.md"
+}

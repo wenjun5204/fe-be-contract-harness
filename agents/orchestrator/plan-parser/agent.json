@@ -1,0 +1,9 @@
+{
+  "name": "plan-parser",
+  "agent_type": "prompt_role",
+  "role": "实施计划解析器",
+  "inputs": { "implementation_plan": { "type": "object", "required": true } },
+  "outputs": { "tasks": { "type": "object" } },
+  "tools": ["read_file"],
+  "prompt_file": "prompt.md"
+}

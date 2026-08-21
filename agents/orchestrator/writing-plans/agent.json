@@ -1,0 +1,12 @@
+{
+  "name": "writing-plans",
+  "agent_type": "prompt_role",
+  "role": "实施计划制定器",
+  "inputs": {
+    "design_doc": { "type": "string", "required": true },
+    "openapi_contract": { "type": "string", "required": true }
+  },
+  "outputs": { "implementation_plan": { "type": "object" } },
+  "tools": ["read_file", "write"],
+  "prompt_file": "prompt.md"
+}

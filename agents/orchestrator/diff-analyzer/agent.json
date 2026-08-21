@@ -1,0 +1,9 @@
+{
+  "name": "diff-analyzer",
+  "agent_type": "prompt_role",
+  "role": "变更分析器",
+  "inputs": { "changed_files": { "type": "string", "required": true } },
+  "outputs": { "diff_summary": { "type": "object" } },
+  "tools": ["bash"],
+  "prompt_file": "prompt.md"
+}

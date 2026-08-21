@@ -1,0 +1,9 @@
+{
+  "name": "contract-reviewer",
+  "agent_type": "prompt_role",
+  "role": "契约评审专家",
+  "inputs": { "openapi_contract": { "type": "string", "required": true } },
+  "outputs": { "review_result": { "type": "object" } },
+  "tools": ["read_file", "bash"],
+  "prompt_file": "prompt.md"
+}

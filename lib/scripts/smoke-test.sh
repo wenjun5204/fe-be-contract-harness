@@ -25,4 +25,6 @@ echo "==> coverage_gate 自测..."
 python3 tests/test_coverage_gate.py
 echo "==> agent 完整性校验..."
 python3 lib/validate-agents.py
+echo "==> stack_adapter 自测..."
+python3 tests/test_stack_adapter.py
 echo "==> Smoke test OK"

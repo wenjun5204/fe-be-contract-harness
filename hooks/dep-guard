@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""dep-guard:依赖检查(设计文档 §8.1)。缺依赖时 fail-closed 提示安装。
+
+用法: dep-guard
+退出码:0 依赖齐全;1 缺依赖;2 参数错误
+"""
+from __future__ import annotations
+
+import json
+import shutil
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+
+def check_deps() -> list:
+    missing = []
+    if shutil.which("python3") is None:
+        missing.append("python3")
+    if shutil.which("node") is None:
+        missing.append("node")
+    try:
+        import yaml  # noqa: F401
+    except ImportError:
+        missing.append("pyyaml (pip3 install pyyaml)")
+    return missing
+
+
+def main(argv=None) -> int:
+    missing = check_deps()
+    if missing:
+        print(json.dumps(
+            {"ok": False, "missing": missing, "suggestion": f"请安装: {', '.join(missing)}"},
+            ensure_ascii=False, indent=2,
+        ))
+        return 1
+    print(json.dumps({"ok": True}, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

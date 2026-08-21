@@ -21,6 +21,11 @@ METHOD_DECORATORS = {
 class NodeStackAdapter(StackAdapter):
     name = "node"
     kind = "backend"
+    LINT = ["eslint src", "tsc --noEmit"]
+    BUILD = ["nest build"]
+    TEST = ["jest"]
+    COVERAGE = "jest --coverage"
+    MARKERS = ["nest-cli.json", "src/main.ts"]
 
     def generate(self, model: dict) -> List[GeneratedFile]:
         schemas = model.get("schemas", {})

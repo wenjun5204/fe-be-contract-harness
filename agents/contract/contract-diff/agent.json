@@ -1,0 +1,12 @@
+{
+  "name": "contract-diff",
+  "agent_type": "prompt_role",
+  "role": "契约兼容性检测器",
+  "inputs": {
+    "old_contract": { "type": "string", "required": true },
+    "new_contract": { "type": "string", "required": true }
+  },
+  "outputs": { "diff_report": { "type": "object" } },
+  "tools": ["bash"],
+  "prompt_file": "prompt.md"
+}

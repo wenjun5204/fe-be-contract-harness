@@ -1,0 +1,9 @@
+{
+  "name": "technology-plan-reviewer",
+  "agent_type": "prompt_role",
+  "role": "技术方案评审专家",
+  "inputs": { "design_doc": { "type": "string", "required": true } },
+  "outputs": { "review_result": { "type": "object" } },
+  "tools": ["read_file"],
+  "prompt_file": "prompt.md"
+}

@@ -40,6 +40,11 @@ METHOD_ANNOTATIONS = {
 class JavaStackAdapter(StackAdapter):
     name = "java"
     kind = "backend"
+    LINT = ["mvn checkstyle:check"]
+    BUILD = ["mvn -q compile"]
+    TEST = ["mvn test"]
+    COVERAGE = "mvn test jacoco:report"
+    MARKERS = ["pom.xml", "build.gradle"]
 
     def generate(self, model: dict) -> List[GeneratedFile]:
         schemas = model.get("schemas", {})

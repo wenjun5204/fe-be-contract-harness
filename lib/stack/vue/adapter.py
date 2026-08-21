@@ -17,6 +17,11 @@ from lib.stack.common import collect_refs, ts_interface, ts_type
 class VueStackAdapter(StackAdapter):
     name = "vue"
     kind = "frontend"
+    LINT = ["eslint src", "vue-tsc --noEmit"]
+    BUILD = ["vite build"]
+    TEST = ["vitest run"]
+    COVERAGE = "vitest run --coverage"
+    MARKERS = ["vite.config.ts", "src/App.vue"]
 
     def generate(self, model: dict) -> List[GeneratedFile]:
         schemas = model.get("schemas", {})

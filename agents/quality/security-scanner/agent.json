@@ -1,0 +1,9 @@
+{
+  "name": "security-scanner",
+  "agent_type": "prompt_role",
+  "role": "安全扫描器",
+  "inputs": { "changed_files": { "type": "string", "required": true } },
+  "outputs": { "scan_result": { "type": "object" } },
+  "tools": ["read_file", "bash"],
+  "prompt_file": "prompt.md"
+}

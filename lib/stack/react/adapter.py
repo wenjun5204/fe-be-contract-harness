@@ -13,6 +13,11 @@ from lib.stack.common import collect_refs, ts_interface, ts_type
 class ReactStackAdapter(StackAdapter):
     name = "react"
     kind = "frontend"
+    LINT = ["eslint src", "tsc --noEmit"]
+    BUILD = ["tsc && vite build"]
+    TEST = ["vitest run"]
+    COVERAGE = "vitest run --coverage"
+    MARKERS = ["vite.config.ts", "src/App.tsx"]
 
     def generate(self, model: dict) -> List[GeneratedFile]:
         schemas = model.get("schemas", {})

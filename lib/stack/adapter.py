@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List
 
 
@@ -37,6 +38,31 @@ class StackAdapter(ABC):
             )
             + "\n",
         )
+
+    # 命令映射与项目识别(子类覆盖,设计文档 §4.2)
+    LINT: List[str] = []
+    BUILD: List[str] = []
+    TEST: List[str] = []
+    COVERAGE: str = ""
+    MARKERS: List[str] = []
+
+    def lint_commands(self) -> List[str]:
+        return list(self.LINT)
+
+    def build_commands(self) -> List[str]:
+        return list(self.BUILD)
+
+    def test_commands(self) -> List[str]:
+        return list(self.TEST)
+
+    def coverage_command(self) -> str:
+        return self.COVERAGE
+
+    def detect(self, repo_path: str) -> dict:
+        """基于标记文件做项目识别(最佳努力)。"""
+        p = Path(repo_path)
+        evidence = [m for m in self.MARKERS if (p / m).exists()]
+        return {"stack": self.name, "kind": self.kind, "detected": bool(evidence), "evidence": evidence}
 
 
 _REGISTRY: Dict[str, type] = {}
