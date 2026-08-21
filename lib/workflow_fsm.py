@@ -103,6 +103,10 @@ class WorkflowFSM:
     def validate_completion(self, stage_id: str, state_data: dict) -> Tuple[bool, List[str]]:
         """校验阶段产出是否满足 required_outputs(非空即视为已产出)。"""
         missing = [k for k in self.required_outputs(stage_id) if not state_data.get(k)]
+        # Stage 1 附加结构化需求 Spec 门控(SDD:需求 Spec 必须可机器校验)
+        if stage_id == "1":
+            from lib.requirements_spec import validate_requirements_completion
+            missing.extend(validate_requirements_completion(state_data))
         return (len(missing) == 0), missing
 
     @staticmethod

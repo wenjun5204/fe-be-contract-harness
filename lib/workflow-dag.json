@@ -15,7 +15,7 @@
       "semantic_id": "requirements",
       "next": ["2"],
       "checkpoint": "mandatory_review",
-      "required_outputs": ["requirements_doc"]
+      "required_outputs": ["requirements_doc", "requirements_spec", "requirements_quality_gate", "requirements_confirmation_status"]
     },
     "2": {
       "name": "接口契约设计",

@@ -33,4 +33,6 @@ echo "==> planner 自测..."
 python3 tests/test_planner.py
 echo "==> eval 评测..."
 python3 evals/run_evals.py | tail -1
+echo "==> requirements_spec 自测..."
+python3 tests/test_requirements_spec.py
 echo "==> Smoke test OK"

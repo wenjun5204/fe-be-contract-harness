@@ -55,8 +55,21 @@
 - 非功能需求量化(性能 / 安全指标)
 - 开放问题标注决策人
 
+## 结构化 Spec(核心,SDD)
+
+除 PRD/用户故事外,必须产出**机器可校验的结构化 Spec**(`requirements_spec`),协议见 `references/SPEC_PROTOCOL.md`,确定性守卫在 `lib/requirements_spec.py`:
+
+1. `scope`:复杂度 L/M/H + 子系统 + 跨团队依赖
+2. `clarification`:有界澄清(≤3 轮 × 3-5 问)+ 11 类覆盖(高影响 9 类必须 covered)+ 事实来源
+3. `contract_readiness`:数据实体(字段 / 类型 / 必填 / 边界)+ 错误码 —— **这是派生 OpenAPI 的直接输入**
+4. 质量门:占位符 / 歧义词 / 契约就绪性校验
+
+> 结构化 Spec 是 Stage 1 → 2 的**硬门控**(`workflow_fsm` 调 `validate_requirements_completion`),不达标无法进入契约设计。
+
 ## 产出
 
 - `requirements_doc`(需求文档路径)
+- `requirements_spec`(结构化 Spec,JSON 协议)
+- `requirements_quality_gate`(passed)+ `requirements_confirmation_status`(approved)
 - 复杂度评估 L/M/H(影响 planner 路径规划)
 - 需求理解须经 Stage 1 `mandatory_review` 确认,确保 AI 理解正确
