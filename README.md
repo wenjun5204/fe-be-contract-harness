@@ -18,7 +18,9 @@
 
 ## 当前状态
 
-已完成 **M0–M3**:仓库骨架、状态机/断点续跑、OpenAPI 契约解析、四栈(React/Vue/Java/Node)代码生成、G1 生成门、跨栈一致性校验与漂移检测。M4(评审/测试/部署/报告 + 多平台)尚未开始。
+已完成 **M0–M4 执行层**:仓库骨架、状态机/断点续跑、OpenAPI 契约解析、四栈代码生成、G1 生成门、跨栈一致性 + 漂移检测、委派协议、checkpoint、覆盖率门控、hooks 入口、关键 agent 定义。
+
+剩余:M4 的**端到端跑通 + 多平台运行时验证**(真实部署/通知/CI 需接入实际运行时与凭据)。
 
 ## 契约驱动生成用法
 
@@ -48,7 +50,7 @@ python3 lib/contract/cli.py stacks
 | M1 契约驱动 | OpenAPI 解析 + 后端骨架 + 前端类型生成 | ✅ |
 | M2 四栈适配 | 补齐 Vue + Java 适配器 | ✅ |
 | M3 一致性门控 | consistency-checker + contract-drift-guard | ✅ |
-| M4 完整 SDLC | 评审/测试/部署/报告 + 多平台验证 | 未开始 |
+| M4 执行层 | 委派协议/checkpoint/覆盖率门控/hooks/agents | ✅(端到端+多平台待接入) |
 
 ## 目录结构
 
