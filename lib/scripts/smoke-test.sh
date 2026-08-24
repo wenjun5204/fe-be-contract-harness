@@ -41,4 +41,12 @@ echo "==> feasibility 自测..."
 python3 tests/test_feasibility.py
 echo "==> repo_knowledge 自测..."
 python3 tests/test_repo_knowledge.py
+echo "==> code_graph 自测..."
+python3 tests/test_code_graph.py
+echo "==> coverage_collector 自测..."
+python3 tests/test_coverage_collector.py
+echo "==> code_review 自测..."
+python3 tests/test_code_review.py
+echo "==> experience 自测..."
+python3 tests/test_experience.py
 echo "==> Smoke test OK"
