@@ -82,15 +82,57 @@ def save(repo_path: str, kb_dir: Optional[Path] = None) -> Path:
     return path
 
 
+def scaffold(repo_path: str, project_name: Optional[str] = None) -> dict:
+    """生成 .agents/ 知识库骨架 + 复制注入脚本(确定性部分;内容由 LLM 填充)。"""
+    repo = Path(repo_path)
+    project_name = project_name or repo.name
+    docs = repo / ".agents" / "docs"
+    scripts = repo / ".agents" / "scripts"
+    test_examples = repo / ".agents" / "test-examples"
+    for d in (docs / "services", scripts, test_examples / "baseline", test_examples / "delivery"):
+        d.mkdir(parents=True, exist_ok=True)
+
+    template_dir = REPO_ROOT / "skills" / "build-repo-knowledge" / "script-templates"
+    created = []
+    for tpl in sorted(template_dir.glob("*.sh")):
+        content = tpl.read_text(encoding="utf-8").replace("{{PROJECT_NAME}}", project_name)
+        dest = scripts / tpl.name
+        dest.write_text(content, encoding="utf-8")
+        dest.chmod(0o755)
+        created.append(str(dest.relative_to(repo)))
+
+    for rel in ("AGENTS.md", ".agents/docs/architecture.md", ".agents/docs/conventions.md", ".agents/docs/domain-model.md"):
+        p = repo / rel
+        if not p.exists():
+            p.write_text(f"<!-- {rel} 待 build-repo-knowledge 生成 -->\n", encoding="utf-8")
+            created.append(rel)
+
+    return {"repo": str(repo), "created": created}
+
+
 def main(argv=None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
     p = argparse.ArgumentParser(description="仓库知识提取")
-    p.add_argument("repo")
-    p.add_argument("--out", default=None, help="输出知识目录,默认 config/repo-knowledge")
+    sub = p.add_subparsers(dest="cmd")
+
+    b = sub.add_parser("build", help="生成单文件仓库知识(技术栈/结构/命令)")
+    b.add_argument("repo")
+    b.add_argument("--out", default=None)
+
+    s = sub.add_parser("scaffold", help="生成 .agents/ 知识库骨架 + 注入脚本")
+    s.add_argument("repo")
+    s.add_argument("--name", default=None)
+
     args = p.parse_args(argv)
-    kb = Path(args.out) if args.out else None
-    path = save(args.repo, kb)
-    print(json.dumps({"ok": True, "file": str(path)}, ensure_ascii=False))
+    if args.cmd == "build":
+        kb = Path(args.out) if args.out else None
+        path = save(args.repo, kb)
+        print(json.dumps({"ok": True, "file": str(path)}, ensure_ascii=False))
+    elif args.cmd == "scaffold":
+        print(json.dumps(scaffold(args.repo, args.name), ensure_ascii=False, indent=2))
+    else:
+        p.print_help()
+        return 1
     return 0
 
 

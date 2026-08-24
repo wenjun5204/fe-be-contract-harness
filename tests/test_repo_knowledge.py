@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lib.repo_knowledge import build_knowledge, detect_stack, save  # noqa: E402
+from lib.repo_knowledge import build_knowledge, detect_stack, save, scaffold  # noqa: E402
 
 
 def test_detect_and_build():
@@ -34,10 +34,23 @@ def test_save():
         assert "# 仓库知识" in out.read_text(encoding="utf-8")
 
 
+def test_scaffold():
+    with tempfile.TemporaryDirectory() as d:
+        repo = Path(d)
+        r = scaffold(repo, "demo")
+        assert (repo / ".agents" / "docs" / "architecture.md").exists()
+        assert (repo / "AGENTS.md").exists()
+        scripts = list((repo / ".agents" / "scripts").glob("*.sh"))
+        assert len(scripts) == 4, scripts
+        # 占位符已替换
+        assert "demo" in (repo / ".agents" / "scripts" / "inject_context.sh").read_text(encoding="utf-8")
+
+
 def main():
     test_detect_and_build()
     test_save()
-    print("OK: repo_knowledge 自测通过(2 组断言)")
+    test_scaffold()
+    print("OK: repo_knowledge 自测通过(3 组断言)")
 
 
 if __name__ == "__main__":
