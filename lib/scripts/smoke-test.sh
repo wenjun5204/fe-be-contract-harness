@@ -49,4 +49,14 @@ echo "==> code_review 自测..."
 python3 tests/test_code_review.py
 echo "==> experience 自测..."
 python3 tests/test_experience.py
+echo "==> parallel_wave_scheduler 自测..."
+python3 tests/test_parallel_wave_scheduler.py
+echo "==> context_orchestrator 自测..."
+python3 tests/test_context_orchestrator.py
+echo "==> smart_retry 自测..."
+python3 tests/test_smart_retry.py
+echo "==> self_heal 自测..."
+python3 tests/test_self_heal.py
+echo "==> notifier 自测..."
+python3 tests/test_notifier.py
 echo "==> Smoke test OK"
