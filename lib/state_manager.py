@@ -70,6 +70,12 @@ def write_state(state_file: Path, state: dict) -> None:
 
 
 def set_stage_state(state_file: Path, stage_id: str, value: str) -> dict:
+    """低层状态写入(恢复/调试)。
+
+    ⚠️ 正式推进流程请使用 lib.transition(start/complete/skip/fail/retry):
+    它强制 FSM 转换 + 前置 + 产出 + receipt + checkpoint + evidence 全门控。
+    本函数不做任何门控,仅供恢复损坏状态或测试底层行为。
+    """
     state = read_state(state_file)
     if stage_id not in state["stages"]:
         raise KeyError(f"unknown stage: {stage_id}")

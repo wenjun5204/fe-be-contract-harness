@@ -33,12 +33,32 @@ python3 lib/contract/cli.py check "$CONTRACT" >/dev/null
 echo "  ✓ 4 栈 manifest 覆盖一致"
 
 echo ""
-echo "[4/6] 状态机推进(模拟 Stage 0→10)"
+echo "[4/6] 状态机推进(唯一 transition 入口,门控闭环)"
 SF="$WORK/state.json"
 python3 lib/state_manager.py init "$SF" demo >/dev/null
-for sid in 0 1 2 3 4 5A 5B 6 7 8 9 10; do
-  python3 lib/state_manager.py set-state "$SF" "$sid" completed >/dev/null
-done
+R0='{"schema":"stage-subagent/v1","stage":"0","subagent":"orchestrator/init","token":"demo"}'
+R1='{"schema":"stage-subagent/v1","stage":"1","subagent":"orchestrator/requirements-analyst","token":"demo"}'
+R2='{"schema":"stage-subagent/v1","stage":"2","subagent":"contract/contract-designer","token":"demo"}'
+R3='{"schema":"stage-subagent/v1","stage":"3","subagent":"orchestrator/services-analyst","token":"demo"}'
+R4='{"schema":"stage-subagent/v1","stage":"4","subagent":"orchestrator/git-client","token":"demo"}'
+R5A='{"schema":"stage-subagent/v1","stage":"5A","subagent":"codegen/node-codegen","token":"demo"}'
+# 正常路径:start + complete(带产出与 receipt)
+python3 lib/transition.py start "$SF" 0 >/dev/null
+python3 lib/transition.py complete "$SF" 0 --receipt "$R0" --outputs '{"execution_plan":"demo"}' >/dev/null
+# 契约已提供:显式带批准跳过需求/契约/方案/分支(演示模式)
+python3 lib/transition.py skip "$SF" 1 --reason "契约已提供" --approved-by demo --receipt "$R1" >/dev/null
+python3 lib/transition.py skip "$SF" 2 --reason "契约已提供" --approved-by demo --receipt "$R2" >/dev/null
+python3 lib/transition.py skip "$SF" 3 --reason "演示模式" --approved-by demo --receipt "$R3" >/dev/null
+python3 lib/transition.py skip "$SF" 4 --reason "演示模式" --approved-by demo --receipt "$R4" >/dev/null
+# 完成后端实现(演示产出)
+python3 lib/transition.py start "$SF" 5A >/dev/null
+python3 lib/transition.py complete "$SF" 5A --receipt "$R5A" --outputs '{"changed_files":["node/api.ts"],"coverage":"demo"}' >/dev/null
+# 绕过演示:无 receipt 的 complete 必须被阻断
+if python3 lib/transition.py complete "$SF" 5B --outputs '{"changed_files":[],"coverage":"demo"}' >/dev/null 2>&1; then
+  echo "  ✗ 无 receipt 竟然放行"
+else
+  echo "  ✓ 无 receipt 的 complete 被阻断(不可绕过)"
+fi
 python3 lib/state_manager.py summary "$SF" | python3 -c '
 import json, sys
 s = json.load(sys.stdin)
@@ -59,8 +79,8 @@ for report in ({"changed_line": 45.0}, {"changed_line": 75.0}):
 PY
 
 echo ""
-echo "[6/6] 委派 fail-closed 校验"
-if python3 hooks/delegation-guard 2 null null >/dev/null 2>&1; then
+echo "[6/6] 委派 fail-closed 校验(hook 统一 JSON 协议)"
+if echo '{"stage":"2","receipt":null,"outputs":{"openapi_contract":"x"}}' | python3 hooks/delegation-guard >/dev/null 2>&1; then
   echo "  ✗ 意外放行"
 else
   echo "  ✓ 无 receipt 被阻断(exit != 0)"

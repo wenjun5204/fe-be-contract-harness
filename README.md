@@ -36,10 +36,19 @@ python3 lib/contract/cli.py verify examples/petstore.yaml --stack node   # G1 �
 python3 lib/contract/cli.py check examples/petstore.yaml                  # 跨栈一致性
 python3 lib/contract/cli.py drift examples/petstore.yaml --stack node --gen-dir gen/node
 
-# 编排 runner(确定性阶段真实执行,LLM 阶段签发委派指令)
+# 编排 runner(确定性阶段真实执行,LLM 阶段签发委派指令;终态一律经 transition 门控)
 python3 lib/runner.py run examples/petstore.yaml --out gen --state state.json
+python3 lib/runner.py run examples/petstore.yaml --out gen --state state.json --auto   # 演示自动模式
 
-# 端到端演示(四栈生成 → G1 门 → 一致性 → 状态机 → 门控)
+# 唯一状态迁移入口(FSM + 前置 + 产出 + receipt + checkpoint + evidence 全门控)
+python3 lib/transition.py start state.json 0
+python3 lib/transition.py complete state.json 0 --receipt '<json>' --outputs '<json>'
+python3 lib/transition.py skip state.json 1 --reason "契约已提供" --approved-by <who> --receipt '<json>'
+python3 lib/transition.py fail state.json 5A --reason "<原因>"
+python3 lib/transition.py retry state.json 5A
+python3 lib/state_manager.py summary state.json          # 进度汇总(只读)
+
+# 端到端演示(四栈生成 → G1 门 → 一致性 → transition 门控闭环)
 npm run demo
 
 # 结构化需求 Spec 校验 / 模糊点识别 / 可行性验证
@@ -52,9 +61,23 @@ python3 lib/repo_knowledge.py scaffold <repo> --name <项目名>
 python3 lib/domain_knowledge.py seed business order "..."
 ```
 
+## 门控闭环(第一阶段)
+
+任何阶段到达终态(completed / skipped)必须经过 `lib/transition.py`,形成不可绕过的执行链:
+
+1. **FSM 转换合法性** —— 非法状态转换直接拒绝
+2. **前置就绪** —— DAG 前置阶段全部终态才可推进(并行汇合自动处理)
+3. **必需产出** —— `required_outputs` 缺失即阻断(Stage 1 含结构化 Spec 硬校验)
+4. **委派 fail-closed** —— dispatch receipt 有效且 subagent 匹配
+5. **checkpoint 人工卡点** —— mandatory_review 不可 skip;approve/skip 才可终态,revise 回到 running
+6. **审计落盘** —— outputs / receipt / checkpoint / evidence / completed_at 随状态原子写入
+
+> `state_manager.set_stage_state` 仅为低层运维写(恢复/调试),不参与正式流程。
+> hooks 统一走 JSON event protocol:`echo '<事件JSON>' | hooks/<guard>`,输出 `{"allow": bool, ...}`。
+
 ## 测试
 
-`npm test` 全绿:**24 套确定性自测 + agent 完整性校验(25 agents)+ eval 评测**。
+`npm test` 全绿:**26 套确定性自测(含 transition 门控闭环 + hooks 协议)+ agent 完整性校验(25 agents)+ eval 评测**。
 
 ```bash
 npm run validate   # 校验 manifest JSON

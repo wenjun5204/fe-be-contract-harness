@@ -40,6 +40,8 @@ python3 lib/contract/cli.py check <contract>                                   #
 python3 lib/contract/cli.py drift <contract> --stack node --gen-dir gen/node   # 漂移检测
 python3 lib/contract/cli.py stacks                                             # 可用技术栈
 python3 lib/state_manager.py init <state.json> <change_id>                     # 状态初始化
+python3 lib/transition.py complete <state.json> <stage> --receipt '<json>' --outputs '<json>'  # 唯一完成入口
+python3 lib/runner.py run <contract> --out gen --state state.json              # 编排(LLM 阶段只签发指令)
 bash lib/scripts/demo-end-to-end.sh                                            # 端到端演示
 ```
 

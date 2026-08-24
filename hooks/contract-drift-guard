@@ -1,18 +1,50 @@
-#!/usr/bin/env bash
-# 契约漂移守卫(设计文档 §8.2):提交前 fail-closed。
-# 用法: contract-drift-guard <contract> <stack> <gen-dir>
-# 退出码:0 无漂移放行;1 漂移阻断;2 参数错误
-set -euo pipefail
+#!/usr/bin/env python3
+"""contract-drift-guard:契约漂移守卫(设计文档 §8.2 / 第一阶段 hook 协议)。
 
-cd "$(dirname "$0")/.."
+输入(事件):
+    {"contract": "...", "stack": "node", "gen_dir": "gen/node"}
+旧位置参数(兼容): contract-drift-guard <contract> <stack> <gen-dir>
+输出: {"allow": bool, "code"?, "reason"?, "drift"?}
+"""
+from __future__ import annotations
 
-CONTRACT="${1:-}"
-STACK="${2:-}"
-GEN_DIR="${3:-}"
+import json
+import sys
+from pathlib import Path
 
-if [ -z "$CONTRACT" ] || [ -z "$STACK" ] || [ -z "$GEN_DIR" ]; then
-  echo "usage: contract-drift-guard <contract> <stack> <gen-dir>" >&2
-  exit 2
-fi
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-python3 lib/contract/cli.py drift "$CONTRACT" --stack "$STACK" --gen-dir "$GEN_DIR"
+from lib.contract.consistency import drift_check  # noqa: E402
+from lib.hook_protocol import UsageError, allow, block, emit, read_event  # noqa: E402
+
+
+def _from_args(argv):
+    if len(argv) < 3:
+        raise UsageError("usage: contract-drift-guard <contract> <stack> <gen-dir>")
+    return {"contract": argv[0], "stack": argv[1], "gen_dir": argv[2]}
+
+
+def main(argv=None) -> int:
+    argv = argv if argv is not None else sys.argv[1:]
+    try:
+        ev = read_event(argv, _from_args)
+        contract = ev.get("contract")
+        stack = ev.get("stack")
+        gen_dir = ev.get("gen_dir")
+        if not (contract and stack and gen_dir):
+            raise UsageError("缺少 contract / stack / gen_dir")
+        r = drift_check(contract, stack, gen_dir)
+        if r["ok"]:
+            return emit(allow(stack=stack, drift=False))
+        return emit(block(
+            "CONTRACT_DRIFT", r.get("reason") or "契约与生成产物漂移",
+            stack=stack,
+            drift={"routes_drift": r.get("routes_drift"), "models_drift": r.get("models_drift")},
+        ))
+    except UsageError as e:
+        print(json.dumps({"allow": False, "code": "BAD_REQUEST", "message": str(e)}, ensure_ascii=False), file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

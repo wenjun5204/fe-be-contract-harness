@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""delegation-guard:fail-closed 委派校验(设计文档 §15.4)。
+"""delegation-guard:fail-closed 委派校验(设计文档 §15.4 / 第一阶段 hook 协议)。
 
-用法:
-    delegation-guard <stage_id> <receipt_json> <outputs_json>
-    其中 receipt_json / outputs_json 为 JSON 字符串(无则传 null)
-
-退出码:0 放行;1 阻断;2 参数错误
+输入(事件):
+    {"stage": "2", "receipt": {...}|null, "outputs": {...}|null}
+旧位置参数(兼容): delegation-guard <stage_id> <receipt_json> <outputs_json>
+输出: {"allow": bool, "code"?, "reasons": [...]}  (退出码 0 放行 / 1 阻断 / 2 协议错误)
 """
 from __future__ import annotations
 
@@ -16,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lib.delegation import validate_dispatch  # noqa: E402
+from lib.hook_protocol import UsageError, allow, block, emit, read_event  # noqa: E402
 
 
 def _parse(s: str):
@@ -24,21 +24,31 @@ def _parse(s: str):
     return json.loads(s)
 
 
+def _from_args(argv):
+    if len(argv) < 3:
+        raise UsageError("usage: delegation-guard <stage_id> <receipt_json> <outputs_json>")
+    return {"stage": argv[0], "receipt": _parse(argv[1]), "outputs": _parse(argv[2])}
+
+
 def main(argv=None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
-    if len(argv) < 3:
-        print("usage: delegation-guard <stage_id> <receipt_json> <outputs_json>", file=sys.stderr)
-        return 2
-    stage = argv[0]
     try:
-        receipt = _parse(argv[1])
-        outputs = _parse(argv[2])
-    except json.JSONDecodeError as e:
-        print(f"JSON 解析失败: {e}", file=sys.stderr)
+        ev = read_event(argv, _from_args)
+        stage = ev.get("stage")
+        receipt = ev.get("receipt")
+        outputs = ev.get("outputs")
+        if not stage:
+            raise UsageError("缺少 stage")
+        res = validate_dispatch(stage, receipt, outputs)
+        if res["ok"]:
+            return emit(allow(stage=stage, reasons=[]))
+        return emit(block("DELEGATION_BLOCKED", "; ".join(res["reasons"]), stage=stage, reasons=res["reasons"]))
+    except UsageError as e:
+        print(json.dumps({"allow": False, "code": "BAD_REQUEST", "message": str(e)}, ensure_ascii=False), file=sys.stderr)
         return 2
-    res = validate_dispatch(stage, receipt, outputs)
-    print(json.dumps(res, ensure_ascii=False, indent=2))
-    return 0 if res["ok"] else 1
+    except json.JSONDecodeError as e:
+        print(json.dumps({"allow": False, "code": "BAD_JSON", "message": f"JSON 解析失败: {e}"}, ensure_ascii=False), file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

@@ -21,6 +21,10 @@ echo "==> delegation 自测..."
 python3 tests/test_delegation.py
 echo "==> checkpoint 自测..."
 python3 tests/test_checkpoint.py
+echo "==> transition 闭环自测..."
+python3 tests/test_transition.py
+echo "==> hooks 协议自测..."
+python3 tests/test_hooks_protocol.py
 echo "==> coverage_gate 自测..."
 python3 tests/test_coverage_gate.py
 echo "==> agent 完整性校验..."

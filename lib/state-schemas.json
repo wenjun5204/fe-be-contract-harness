@@ -13,7 +13,7 @@
     "updated_at": { "type": "string" },
     "stages": {
       "type": "object",
-      "description": "stage_id -> 阶段状态与产出",
+      "description": "stage_id -> 阶段状态与产出(终态必须经 lib/transition.py 门控写入)",
       "additionalProperties": {
         "type": "object",
         "required": ["state", "outputs"],
@@ -32,6 +32,39 @@
             ]
           },
           "outputs": { "type": "object" },
+          "receipt": {
+            "type": ["object", "null"],
+            "description": "dispatch receipt(委派 fail-closed 凭证)"
+          },
+          "checkpoint": {
+            "type": ["object", "null"],
+            "description": "人工卡点记录:{type, decision, approved_by, at}",
+            "properties": {
+              "type": { "type": "string" },
+              "decision": { "type": "string", "enum": ["approve", "skip", "revise"] },
+              "approved_by": { "type": "string" },
+              "at": { "type": "string" }
+            }
+          },
+          "skip": {
+            "type": ["object", "null"],
+            "description": "显式跳过记录:{reason, approved_by, at}",
+            "properties": {
+              "reason": { "type": "string" },
+              "approved_by": { "type": "string" },
+              "at": { "type": "string" }
+            }
+          },
+          "error": {
+            "type": ["object", "null"],
+            "description": "失败记录:{reason, at}"
+          },
+          "evidence": {
+            "type": "array",
+            "description": "可验证证据链:[{type, detail, at}]",
+            "items": { "type": "object" }
+          },
+          "completed_at": { "type": ["string", "null"] },
           "updated_at": { "type": ["string", "null"] }
         }
       }

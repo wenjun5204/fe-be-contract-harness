@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""coverage-guard:提交前覆盖率门控(设计文档 §14.4)。
+"""coverage-guard:提交前覆盖率门控(设计文档 §14.4 / 第一阶段 hook 协议)。
 
-用法:
-    coverage-guard <report_json>
-    report_json 形如 '{"changed_line": 55.0, "new_file": null, "delta_drop": 1.2}'
-
-退出码:0 达标;1 不达标;2 参数错误
+输入(事件):
+    {"report": {"changed_line": 55.0, "new_file": null, "delta_drop": 1.2}}
+    或直接包含指标字段:{"changed_line": 55.0, ...}
+旧位置参数(兼容): coverage-guard <report_json>
+输出: {"allow": bool, "code"?, "problems": [...]}
 """
 from __future__ import annotations
 
@@ -16,21 +16,33 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lib.coverage_gate import check_coverage  # noqa: E402
+from lib.hook_protocol import UsageError, allow, block, emit, read_event  # noqa: E402
+
+
+def _from_args(argv):
+    if len(argv) < 1:
+        raise UsageError("usage: coverage-guard <report_json>")
+    return {"report": json.loads(argv[0])}
 
 
 def main(argv=None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
-    if len(argv) < 1:
-        print("usage: coverage-guard <report_json>", file=sys.stderr)
-        return 2
     try:
-        report = json.loads(argv[0])
-    except json.JSONDecodeError as e:
-        print(f"JSON 解析失败: {e}", file=sys.stderr)
+        ev = read_event(argv, _from_args)
+        report = ev.get("report")
+        if report is None:
+            # 允许直接以指标字段作为 report
+            report = {k: v for k, v in ev.items() if k in ("changed_line", "new_file", "delta_drop")}
+        r = check_coverage(report or {})
+        if r["ok"]:
+            return emit(allow(problems=[]))
+        return emit(block("COVERAGE_BLOCKED", "; ".join(r["problems"]), problems=r["problems"]))
+    except UsageError as e:
+        print(json.dumps({"allow": False, "code": "BAD_REQUEST", "message": str(e)}, ensure_ascii=False), file=sys.stderr)
         return 2
-    r = check_coverage(report)
-    print(json.dumps(r, ensure_ascii=False, indent=2))
-    return 0 if r["ok"] else 1
+    except json.JSONDecodeError as e:
+        print(json.dumps({"allow": False, "code": "BAD_JSON", "message": f"JSON 解析失败: {e}"}, ensure_ascii=False), file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

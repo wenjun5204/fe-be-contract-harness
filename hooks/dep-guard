@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""dep-guard:依赖检查(设计文档 §8.1)。缺依赖时 fail-closed 提示安装。
+"""dep-guard:依赖检查(设计文档 §8.1 / 第一阶段 hook 协议)。
 
-用法: dep-guard
-退出码:0 依赖齐全;1 缺依赖;2 参数错误
+输入(事件): 可忽略(不依赖事件内容)
+输出: {"allow": bool, "missing": [...]}
 """
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from lib.hook_protocol import UsageError, emit, read_event  # noqa: E402
 
 
 def check_deps() -> list:
@@ -28,15 +30,15 @@ def check_deps() -> list:
 
 
 def main(argv=None) -> int:
+    argv = argv if argv is not None else sys.argv[1:]
+    try:
+        read_event(argv)  # 仅用于协议统一;dep-guard 不依赖事件内容
+    except UsageError:
+        pass  # 无事件也允许(纯环境检查)
     missing = check_deps()
     if missing:
-        print(json.dumps(
-            {"ok": False, "missing": missing, "suggestion": f"请安装: {', '.join(missing)}"},
-            ensure_ascii=False, indent=2,
-        ))
-        return 1
-    print(json.dumps({"ok": True}, ensure_ascii=False))
-    return 0
+        return emit({"allow": False, "missing": missing, "suggestion": f"请安装: {', '.join(missing)}"})
+    return emit({"allow": True, "missing": []})
 
 
 if __name__ == "__main__":
