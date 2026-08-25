@@ -47,6 +47,7 @@ def init_state(state_file: Path, change_id: str) -> dict:
         "current_stage": None,
         "created_at": _now(),
         "updated_at": _now(),
+        "receipts": {},
         "stages": {
             sid: {"state": "pending", "outputs": {}, "updated_at": None}
             for sid in dag["stage_graph"]
@@ -133,19 +134,16 @@ def summary(state_file: Path) -> dict:
 
 def main(argv: Optional[List[str]] = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
-    p = argparse.ArgumentParser(description="state_manager 状态持久化")
+    p = argparse.ArgumentParser(
+        description="state_manager 状态持久化(只读 + 初始化;阶段推进一律走 lib/transition.py)",
+    )
     sub = p.add_subparsers(dest="cmd")
 
     s_init = sub.add_parser("init", help="初始化 state.json")
     s_init.add_argument("state_file")
     s_init.add_argument("change_id")
 
-    s_set = sub.add_parser("set-state", help="更新阶段状态")
-    s_set.add_argument("state_file")
-    s_set.add_argument("stage_id")
-    s_set.add_argument("value")
-
-    s_out = sub.add_parser("set-output", help="写阶段产出字段")
+    s_out = sub.add_parser("set-output", help="写阶段产出字段(仅恢复/调试;字段应在 required_outputs 内)")
     s_out.add_argument("state_file")
     s_out.add_argument("stage_id")
     s_out.add_argument("field")
@@ -163,10 +161,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.cmd == "init":
         init_state(sf, args.change_id)
         print(json.dumps({"ok": True, "file": str(sf)}, ensure_ascii=False))
-    elif args.cmd == "set-state":
-        set_stage_state(sf, args.stage_id, args.value)
-        print(json.dumps({"ok": True}, ensure_ascii=False))
     elif args.cmd == "set-output":
+        # 运维/恢复用:字段不在 required_outputs 时打印警告(不阻断)
+        from lib.workflow_fsm import WorkflowFSM
+        allowed = WorkflowFSM().required_outputs(args.stage_id)
+        if args.field not in allowed:
+            print(
+                json.dumps({"warning": f"{args.field} 不在 {args.stage_id} 的 required_outputs {allowed} 内,仅作扩展字段"},
+                           ensure_ascii=False),
+                file=sys.stderr,
+            )
         set_stage_output(sf, args.stage_id, args.field, args.value)
         print(json.dumps({"ok": True}, ensure_ascii=False))
     elif args.cmd == "actionable":

@@ -11,6 +11,29 @@
     "current_stage": { "type": ["string", "null"] },
     "created_at": { "type": "string" },
     "updated_at": { "type": "string" },
+    "receipts": {
+      "type": "object",
+      "description": "委派 receipt 登记表(stage -> {receipt, used})。签发后必须登记,消费后标记 used(一次性,防伪造)",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["receipt", "used"],
+        "properties": {
+          "receipt": {
+            "type": "object",
+            "required": ["schema", "stage", "subagent", "token"],
+            "properties": {
+              "schema": { "type": "string" },
+              "stage": { "type": "string" },
+              "subagent": { "type": "string" },
+              "token": { "type": "string" }
+            }
+          },
+          "used": { "type": "boolean" },
+          "registered_at": { "type": ["string", "null"] },
+          "consumed_at": { "type": ["string", "null"] }
+        }
+      }
+    },
     "stages": {
       "type": "object",
       "description": "stage_id -> 阶段状态与产出(终态必须经 lib/transition.py 门控写入)",

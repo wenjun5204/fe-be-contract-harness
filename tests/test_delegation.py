@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
 """委派协议自测。运行:python3 tests/test_delegation.py"""
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lib.delegation import issue_receipt, load_policy, validate_dispatch, validate_receipt  # noqa: E402
+from lib.delegation import (  # noqa: E402
+    consume_receipt,
+    issue_receipt,
+    load_policy,
+    register_receipt,
+    validate_dispatch,
+    validate_receipt,
+    validate_receipt_registered,
+)
+from lib.state_manager import init_state  # noqa: E402
 
 
 def test_receipt():
@@ -37,11 +47,50 @@ def test_fail_closed():
     assert not res["ok"] and "openapi_contract" in " ".join(res["reasons"])
 
 
+def test_registered_gate():
+    """带 state_file 时:未登记 / token 伪造 / 已消费 均拒绝;登记且未使用才放行。"""
+    policy = load_policy()
+    with tempfile.TemporaryDirectory() as d:
+        sf = Path(d) / "state.json"
+        init_state(sf, "deleg")
+        outputs = {"openapi_contract": "api.yaml"}
+        # 1. 未登记 → 拒绝
+        r = issue_receipt("2", "contract/contract-designer", "tok-2")
+        res = validate_dispatch("2", r, outputs, policy, state_file=sf)
+        assert not res["ok"] and "未登记" in " ".join(res["reasons"]), res
+        # 2. 登记后 → 放行
+        register_receipt(sf, r)
+        res = validate_dispatch("2", r, outputs, policy, state_file=sf)
+        assert res["ok"], res
+        # 3. token 伪造 → 拒绝
+        fake = issue_receipt("2", "contract/contract-designer", "attacker")
+        res = validate_dispatch("2", fake, outputs, policy, state_file=sf)
+        assert not res["ok"] and "token 与登记不符" in " ".join(res["reasons"]), res
+        # 4. 消费后重放 → 拒绝
+        consume_receipt(sf, "2")
+        res = validate_dispatch("2", r, outputs, policy, state_file=sf)
+        assert not res["ok"] and "已被消费" in " ".join(res["reasons"]), res
+
+
+def test_validate_registered_pure():
+    """validate_receipt_registered 纯函数语义。"""
+    state = {"receipts": {}}
+    r = issue_receipt("2", "contract/contract-designer", "tok")
+    assert validate_receipt_registered(state, "2", r) is not None  # 未登记
+    state["receipts"]["2"] = {"receipt": r, "used": False}
+    assert validate_receipt_registered(state, "2", r) is None  # 通过
+    assert validate_receipt_registered(state, "2", None) is not None  # 无 receipt
+    state["receipts"]["2"]["used"] = True
+    assert validate_receipt_registered(state, "2", r) is not None  # 已消费
+
+
 def main():
     test_receipt()
     test_valid_dispatch()
     test_fail_closed()
-    print("OK: delegation 自测通过(3 组断言)")
+    test_registered_gate()
+    test_validate_registered_pure()
+    print("OK: delegation 自测通过(5 组断言)")
 
 
 if __name__ == "__main__":

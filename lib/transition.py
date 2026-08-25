@@ -14,6 +14,7 @@
 - 确定性阶段(0/5A/5B/6/10)由 runner 签发 receipt(token=runner);LLM 阶段由子 Agent 回传 receipt。
 
 用法(CLI):
+    python3 lib/transition.py register <state> --receipt <json>           # 登记委派 receipt(防伪造)
     python3 lib/transition.py start <state> <stage>
     python3 lib/transition.py complete <state> <stage> --outputs <json> --receipt <json> [--checkpoint approve|skip] [--evidence <json>] [--auto]
     python3 lib/transition.py skip <state> <stage> --reason <text> --approved-by <who> [--receipt <json>] [--evidence <json>]
@@ -33,7 +34,7 @@ from typing import Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lib.checkpoint_manager import decide, requires_checkpoint
-from lib.delegation import load_policy, validate_dispatch
+from lib.delegation import consume_receipt, load_policy, validate_dispatch
 from lib.state_manager import read_state, write_state
 from lib.workflow_fsm import WorkflowFSM
 
@@ -127,13 +128,13 @@ def complete_stage(
     if not ok_out:
         problems.append(f"缺少必需产出: {missing}")
 
-    # 3. 委派 fail-closed(required_stages 中的阶段必须有合法 receipt)
+    # 3. 委派 fail-closed(required_stages 中的阶段必须有合法且已登记的 receipt)
     policy = load_policy()
     if stage_id in policy.get("required_stages", []):
         if not receipt:
             problems.append(f"阶段 {stage_id} 缺少 dispatch receipt(委派 fail-closed)")
         else:
-            dres = validate_dispatch(stage_id, receipt, outputs, policy)
+            dres = validate_dispatch(stage_id, receipt, outputs, policy, state_file=sf)
             if not dres["ok"]:
                 problems.extend(dres["reasons"])
 
@@ -180,7 +181,7 @@ def complete_stage(
     else:
         target = "completed"
 
-    # 5. 原子写终态 + 审计字段
+    # 5. 原子写终态 + 审计字段(消费 receipt:一次性防重放)
     state["stages"][stage_id]["state"] = target
     state["stages"][stage_id]["outputs"] = outputs
     state["stages"][stage_id]["receipt"] = receipt
@@ -190,6 +191,7 @@ def complete_stage(
     state["stages"][stage_id]["updated_at"] = _now()
     state["current_stage"] = stage_id
     write_state(sf, state)
+    consume_receipt(sf, stage_id)
     return {"ok": True, "stage": stage_id, "status": target, "checkpoint": checkpoint_record}
 
 
@@ -231,6 +233,17 @@ def skip_stage(
     if stage_id in policy.get("required_stages", []):
         if not receipt:
             problems.append(f"阶段 {stage_id} 缺少 dispatch receipt(委派 fail-closed)")
+        else:
+            # skip 无产出,不做 required_outputs 校验;但结构/subagent/登记三项必查
+            from lib.delegation import validate_receipt, validate_receipt_registered
+            if not validate_receipt(receipt, stage_id):
+                problems.append(f"receipt 无效或与阶段不匹配({stage_id})")
+            expected_sub = policy.get("stage_subagent", {}).get(stage_id)
+            if expected_sub and receipt.get("subagent") != expected_sub:
+                problems.append(f"subagent 不匹配:期望 {expected_sub},实际 {receipt.get('subagent')}")
+            reg_reason = validate_receipt_registered(state, stage_id, receipt)
+            if reg_reason:
+                problems.append(reg_reason)
     if problems:
         raise TransitionError(f"阶段 {stage_id} 门控未通过: {'; '.join(problems)}", problems)
 
@@ -246,6 +259,7 @@ def skip_stage(
     state["stages"][stage_id]["updated_at"] = _now()
     state["current_stage"] = stage_id
     write_state(sf, state)
+    consume_receipt(sf, stage_id)
     return {"ok": True, "stage": stage_id, "state": "skipped"}
 
 
@@ -293,6 +307,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(description="唯一状态迁移入口(门控闭环)")
     sub = p.add_subparsers(dest="cmd")
 
+    p_reg = sub.add_parser("register", help="登记委派 receipt(防伪造,消费前必须登记)")
+    p_reg.add_argument("state_file")
+    p_reg.add_argument("--receipt", type=_parse_json, required=True)
+
     p_start = sub.add_parser("start", help="pending → running(校验前置)")
     p_start.add_argument("state_file")
     p_start.add_argument("stage")
@@ -328,7 +346,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         p.print_help()
         return 1
     try:
-        if args.cmd == "start":
+        if args.cmd == "register":
+            from lib.delegation import register_receipt
+            entry = register_receipt(args.state_file, args.receipt)
+            res = {"ok": True, "stage": entry["receipt"]["stage"], "registered": True}
+        elif args.cmd == "start":
             res = start_stage(args.state_file, args.stage)
         elif args.cmd == "complete":
             res = complete_stage(

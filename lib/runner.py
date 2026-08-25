@@ -69,6 +69,13 @@ def _directive(stage: str, policy: dict, contract: str) -> dict:
     }
 
 
+def _register(state_file: Path, receipt: dict) -> dict:
+    """签发后登记 receipt 到 state(防伪造;complete/skip 前必须登记)。"""
+    from lib.delegation import register_receipt
+    register_receipt(state_file, receipt)
+    return receipt
+
+
 def _try_transition(state_file: Path, fn, events: List[dict], stage: str, kind: str, detail: str) -> Optional[dict]:
     """执行一个经 transition 的动作;失败记录 blocked 事件。"""
     try:
@@ -113,7 +120,7 @@ def run(
         lambda: _start_then_complete(
             state_file, "0",
             outputs={"execution_plan": f"contract-driven SDLC: {contract.name}"},
-            receipt=issue_receipt("0", "orchestrator/init", "runner"),
+            receipt=_register(state_file, issue_receipt("0", "orchestrator/init", "runner")),
             evidence=[{"type": "contract", "detail": str(contract), "at": _now()}],
         ),
         events, "0", "done", "初始化 state(经 transition 门控)",
@@ -129,7 +136,7 @@ def run(
                     state_file, sid,
                     reason=reason,
                     approved_by="runner:auto",
-                    receipt=issue_receipt(sid, sub, "runner"),
+                    receipt=_register(state_file, issue_receipt(sid, sub, "runner")),
                     evidence=[{"type": "contract", "detail": str(contract), "at": _now()}],
                 ),
                 events, sid, "skip", reason,
@@ -149,7 +156,7 @@ def run(
                     state_file, sid,
                     reason="无该端技术栈",
                     approved_by="runner:auto",
-                    receipt=issue_receipt(sid, sub, "runner"),
+                    receipt=_register(state_file, issue_receipt(sid, sub, "runner")),
                 ),
                 events, sid, "skip", "无该端技术栈",
             )
@@ -168,7 +175,7 @@ def run(
                         "changed_files": files,
                         "coverage": "G1 verified(骨架生成,演示模式未跑真实覆盖率)",
                     },
-                    receipt=issue_receipt(sid, policy.get("stage_subagent", {}).get(sid, "unknown"), "runner"),
+                    receipt=_register(state_file, issue_receipt(sid, policy.get("stage_subagent", {}).get(sid, "unknown"), "runner")),
                     checkpoint_decision="approve" if auto else None,
                     evidence=[{"type": "codegen", "detail": f"{sid}: {', '.join(group)}", "at": _now()}],
                 ),
@@ -185,7 +192,7 @@ def run(
             lambda: _start_then_complete(
                 state_file, "6",
                 outputs={"consistency_report": json.dumps(r, ensure_ascii=False)},
-                receipt=issue_receipt("6", "contract/consistency-checker", "runner"),
+                receipt=_register(state_file, issue_receipt("6", "contract/consistency-checker", "runner")),
                 checkpoint_decision="approve" if auto else None,
                 evidence=[{"type": "consistency", "detail": f"ok={r['ok']}", "at": _now()}],
             ),
@@ -204,7 +211,7 @@ def run(
                     state_file, sid,
                     reason=reason,
                     approved_by="runner:auto",
-                    receipt=issue_receipt(sid, sub, "runner"),
+                    receipt=_register(state_file, issue_receipt(sid, sub, "runner")),
                 ),
                 events, sid, "skip", reason,
             )
@@ -217,7 +224,7 @@ def run(
         lambda: _start_then_complete(
             state_file, "10",
             outputs={"delivery_report": f"交付报告(见 summary): {contract.name}"},
-            receipt=issue_receipt("10", "orchestrator/notifier", "runner"),
+            receipt=_register(state_file, issue_receipt("10", "orchestrator/notifier", "runner")),
             checkpoint_decision="approve" if auto else None,
             evidence=[{"type": "delivery", "detail": "runner 汇总", "at": _now()}],
         ),

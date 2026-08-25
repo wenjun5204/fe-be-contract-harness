@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from lib.delegation import register_receipt  # noqa: E402
 from lib.state_manager import init_state  # noqa: E402
 
 HOOKS = Path(__file__).resolve().parent.parent / "hooks"
@@ -106,8 +107,9 @@ def test_stage_completed_integration():
             "outputs": {"execution_plan": "plan"},
         })
         assert code != 0 and r["code"] == "TRANSITION_BLOCKED", (code, r)
-        # 2. 带合法 receipt → completed,next 指向 1
+        # 2. 带合法且已登记的 receipt → completed,next 指向 1
         receipt = {"schema": "stage-subagent/v1", "stage": "0", "subagent": "orchestrator/init", "token": "hook"}
+        register_receipt(sf, receipt)  # 模拟主 Agent 委派时登记
         code, r = run_hook("stage-completed", {
             "state_file": str(sf), "stage": "0",
             "outputs": {"execution_plan": "plan"},
@@ -118,6 +120,7 @@ def test_stage_completed_integration():
         assert r["next"] == ["1"], r
         # 3. Stage 1 mandatory_review 无 decision → checkpoint_pending(allow,等待人工)
         receipt1 = {"schema": "stage-subagent/v1", "stage": "1", "subagent": "orchestrator/requirements-analyst", "token": "hook"}
+        register_receipt(sf, receipt1)
         outputs1 = {
             "requirements_doc": "doc",
             "requirements_spec": {

@@ -25,6 +25,8 @@ echo "==> transition 闭环自测..."
 python3 tests/test_transition.py
 echo "==> hooks 协议自测..."
 python3 tests/test_hooks_protocol.py
+echo "==> manifest 一致性自测..."
+python3 tests/test_manifest_consistency.py
 echo "==> coverage_gate 自测..."
 python3 tests/test_coverage_gate.py
 echo "==> agent 完整性校验..."

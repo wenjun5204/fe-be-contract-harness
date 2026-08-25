@@ -23,36 +23,68 @@ class UsageError(Exception):
     """事件上下文缺失或协议错误。"""
 
 
+def _strip_options(argv: List[str]) -> List[str]:
+    """剔除 --event/--event-json/--platform 及其值,保留纯位置参数(旧协议)。"""
+    out: List[str] = []
+    skip_next = False
+    for a in argv:
+        if skip_next:
+            skip_next = False
+            continue
+        if a in ("--event", "--event-json", "--platform"):
+            skip_next = True
+            continue
+        out.append(a)
+    return out
+
+
 def read_event(argv: Optional[List[str]] = None, from_args: Optional[Callable[[List[str]], dict]] = None) -> dict:
-    """读取事件上下文 dict。from_args 为旧位置参数 → dict 的映射函数(可为 None 表示不支持)。"""
+    """读取事件上下文 dict。from_args 为旧位置参数 → dict 的映射函数(可为 None 表示不支持)。
+
+    --platform <name> 时对读入事件做 normalize(平台原始事件 → 标准 envelope,见 lib/platform/event_adapter.py)。
+    """
     argv = list(argv or [])
+    platform = None
+    if "--platform" in argv:
+        i = argv.index("--platform")
+        if i + 1 < len(argv):
+            platform = argv[i + 1]
 
     if "--event" in argv:
         i = argv.index("--event")
         if i + 1 >= len(argv):
             raise UsageError("--event 缺少文件路径")
         with open(argv[i + 1], "r", encoding="utf-8") as f:
-            return json.load(f)
+            ev = json.load(f)
+        return _normalize(platform, ev)
 
     if "--event-json" in argv:
         i = argv.index("--event-json")
         if i + 1 >= len(argv):
             raise UsageError("--event-json 缺少 JSON")
-        return json.loads(argv[i + 1])
+        return _normalize(platform, json.loads(argv[i + 1]))
 
     # 旧位置参数协议
-    if argv:
+    positional = _strip_options(argv)
+    if positional:
         if from_args is None:
             raise UsageError("该 hook 不支持位置参数,请通过 --event-json 传入事件")
-        return from_args(argv)
+        return from_args(positional)
 
     # stdin 管道输入(非 TTY)
     if not sys.stdin.isatty():
         data = sys.stdin.read()
         if data.strip():
-            return json.loads(data)
+            return _normalize(platform, json.loads(data))
 
     raise UsageError("缺少事件上下文(请通过 stdin / --event / --event-json 传入 JSON)")
+
+
+def _normalize(platform: Optional[str], ev: dict) -> dict:
+    if not platform:
+        return ev
+    from lib.platform.event_adapter import normalize
+    return normalize(platform, ev)
 
 
 def emit(result: dict) -> int:

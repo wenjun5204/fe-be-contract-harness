@@ -40,7 +40,9 @@ python3 lib/contract/cli.py drift examples/petstore.yaml --stack node --gen-dir 
 python3 lib/runner.py run examples/petstore.yaml --out gen --state state.json
 python3 lib/runner.py run examples/petstore.yaml --out gen --state state.json --auto   # 演示自动模式
 
-# 唯一状态迁移入口(FSM + 前置 + 产出 + receipt + checkpoint + evidence 全门控)
+# 唯一状态迁移入口(FSM + 前置 + 产出 + receipt 登记 + checkpoint + evidence 全门控)
+python3 lib/transition.py init state.json 2>/dev/null || python3 lib/state_manager.py init state.json demo
+python3 lib/transition.py register state.json --receipt '<json>'   # 委派后先登记(receipt 防伪)
 python3 lib/transition.py start state.json 0
 python3 lib/transition.py complete state.json 0 --receipt '<json>' --outputs '<json>'
 python3 lib/transition.py skip state.json 1 --reason "契约已提供" --approved-by <who> --receipt '<json>'
@@ -68,16 +70,17 @@ python3 lib/domain_knowledge.py seed business order "..."
 1. **FSM 转换合法性** —— 非法状态转换直接拒绝
 2. **前置就绪** —— DAG 前置阶段全部终态才可推进(并行汇合自动处理)
 3. **必需产出** —— `required_outputs` 缺失即阻断(Stage 1 含结构化 Spec 硬校验)
-4. **委派 fail-closed** —— dispatch receipt 有效且 subagent 匹配
+4. **委派 fail-closed** —— dispatch receipt 必须先 `register` 登记到 state(签发→登记→消费,一次性防重放/防伪造)
 5. **checkpoint 人工卡点** —— mandatory_review 不可 skip;approve/skip 才可终态,revise 回到 running
 6. **审计落盘** —— outputs / receipt / checkpoint / evidence / completed_at 随状态原子写入
 
-> `state_manager.set_stage_state` 仅为低层运维写(恢复/调试),不参与正式流程。
-> hooks 统一走 JSON event protocol:`echo '<事件JSON>' | hooks/<guard>`,输出 `{"allow": bool, ...}`。
+> `state_manager.set_stage_state` 仅为低层运维写(恢复/调试),不参与正式流程;CLI 已不暴露 set-state。
+> hooks 统一走 JSON event protocol:`echo '<事件JSON>' | hooks/<guard>`,输出 `{"allow": bool, ...}`;
+> 平台原始事件经 `lib/platform/event_adapter.py` normalize 为标准 envelope(hooks 支持 `--platform <name>` 自动转换)。
 
 ## 测试
 
-`npm test` 全绿:**26 套确定性自测(含 transition 门控闭环 + hooks 协议)+ agent 完整性校验(25 agents)+ eval 评测**。
+`npm test` 全绿:**27 套确定性自测(含 transition 门控闭环 + hooks 协议 + manifest 一致性)+ agent 完整性校验(25 agents)+ eval 评测**;CI 另跑 `pytest tests/` 结构化收集层与端到端演示。
 
 ```bash
 npm run validate   # 校验 manifest JSON
@@ -104,9 +107,10 @@ fe-be-contract-harness/
 
 ## 现状与边界
 
-- ✅ **确定性内核完整**:契约→生成→门控→一致性→漂移→委派→checkpoint→覆盖率,全链路可测可跑
+- ✅ **确定性内核完整**:契约→生成→门控→一致性→漂移→委派(登记防伪)→checkpoint→覆盖率,全链路可测可跑
 - ✅ **SDD 前半段打通**:领域/仓库知识 → 模糊点识别 → 可行性验证 → 结构化 Spec(硬门控)
-- ⚠️ **待接真实运行时**:LLM 阶段(需求分析/契约设计/评审)由 agent 定义 + 确定性 runner 驱动,但真实 LLM 派发需接 CatPaw/Claude Code/OpenClaw 运行时
+- ✅ **执行闭环**:唯一 transition 入口 + receipt 登记/消费(一次性)+ hooks JSON event protocol + manifest 一致性自测
+- ⚠️ **待接真实运行时**:LLM 阶段(需求分析/契约设计/评审)由 agent 定义 + 确定性 runner 驱动,但真实 LLM 派发需接 CatPaw/Claude Code/OpenClaw 运行时;平台原始事件 → hook envelope 的精确映射(`lib/platform/event_adapter.py`)为「尽力提取」,需在真实运行时上验证后固化
 - ⚠️ **OpenAPI 解析是子集**:支持 `$ref`/array/object/enum/基础类型,`allOf/oneOf/anyOf` 待扩展
 
 ## 依赖

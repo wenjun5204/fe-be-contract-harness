@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""委派协议(设计文档 §15):dispatch receipt 签发与 fail-closed 校验。
+"""委派协议(设计文档 §15):dispatch receipt 签发、登记、消费与 fail-closed 校验。
 
 fail-closed:任何一条不满足(阶段必需 / receipt 有效 / subagent 匹配 / 产出完整)即阻断,
 防止 AI 跳过必需阶段或伪造执行。
+
+第一阶段补强(防伪造):
+- 签发后的 receipt 必须登记到 state.json 的 receipts 表(token 防伪,仅登记表内可校验通过)
+- 消费(complete/skip 终态)后标记 used,一次性使用,防重放
+- validate_dispatch(state_file=...) 时叠加登记校验;不传 state_file 保持纯函数(兼容低层调用)
 """
 from __future__ import annotations
 
@@ -24,7 +29,7 @@ def load_policy(path: Optional[str | Path] = None) -> dict:
 
 
 def issue_receipt(stage_id: str, subagent: str, token: str) -> dict:
-    """签发 dispatch receipt。token 由调用方(主 Agent)持有并回传。"""
+    """签发 dispatch receipt。token 由调用方(主 Agent)持有并回传;签发后须 register_receipt。"""
     return {
         "schema": RECEIPT_SCHEMA,
         "stage": stage_id,
@@ -42,13 +47,75 @@ def validate_receipt(receipt: Optional[dict], stage_id: str) -> bool:
     )
 
 
+# ---- 登记 / 消费 / 防伪 ----
+
+def _load_state(state_file) -> dict:
+    from lib.state_manager import read_state
+    return read_state(Path(state_file))
+
+
+def _save_state(state_file, state: dict) -> None:
+    from lib.state_manager import write_state
+    write_state(Path(state_file), state)
+
+
+def _now() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def register_receipt(state_file: str | Path, receipt: dict) -> dict:
+    """把签发后的 receipt 登记到 state 的 receipts 表(幂等:同 stage+token 重复登记覆盖)。"""
+    if not validate_receipt(receipt, receipt.get("stage", "")):
+        raise ValueError(f"receipt 无效: {receipt}")
+    state = _load_state(state_file)
+    stage = receipt["stage"]
+    state.setdefault("receipts", {})
+    state["receipts"][stage] = {
+        "receipt": receipt,
+        "used": False,
+        "registered_at": _now(),
+        "consumed_at": None,
+    }
+    _save_state(state_file, state)
+    return state["receipts"][stage]
+
+
+def validate_receipt_registered(state: dict, stage_id: str, receipt: Optional[dict]) -> Optional[str]:
+    """登记表校验:存在 / token 匹配 / 未消费。返回 None=通过,否则返回原因。"""
+    table = state.get("receipts", {})
+    entry = table.get(stage_id)
+    if not entry:
+        return f"阶段 {stage_id} 的 receipt 未登记(防伪造:必须先 register_receipt)"
+    expected = entry.get("receipt", {})
+    if receipt is None or receipt.get("token") != expected.get("token"):
+        return f"阶段 {stage_id} 的 receipt token 与登记不符(疑似伪造)"
+    if entry.get("used"):
+        return f"阶段 {stage_id} 的 receipt 已被消费(一次性,禁止重放)"
+    return None
+
+
+def consume_receipt(state_file: str | Path, stage_id: str) -> None:
+    """终态落盘后标记 receipt 已消费(一次性)。"""
+    state = _load_state(state_file)
+    entry = state.get("receipts", {}).get(stage_id)
+    if entry:
+        entry["used"] = True
+        entry["consumed_at"] = _now()
+        _save_state(state_file, state)
+
+
 def validate_dispatch(
     stage_id: str,
     receipt: Optional[dict],
     outputs: Optional[dict],
     policy: Optional[dict] = None,
+    state_file: Optional[str | Path] = None,
 ) -> dict:
-    """fail-closed 委派校验。返回 {"ok": bool, "reasons": [...]}。"""
+    """fail-closed 委派校验。返回 {"ok": bool, "reasons": [...]}。
+
+    传 state_file 时叠加登记表校验(防伪造 + 一次性);不传则仅做结构校验(低层纯函数)。
+    """
     policy = policy if policy is not None else load_policy()
     reasons: List[str] = []
 
@@ -66,7 +133,17 @@ def validate_dispatch(
     if receipt and expected_sub and receipt.get("subagent") != expected_sub:
         reasons.append(f"subagent 不匹配:期望 {expected_sub},实际 {receipt.get('subagent')}")
 
-    # 4. outputs 满足 required_outputs
+    # 4. 登记表校验(防伪造 + 一次性)
+    if state_file is not None and validate_receipt(receipt, stage_id):
+        try:
+            state = _load_state(state_file)
+            reg_reason = validate_receipt_registered(state, stage_id, receipt)
+            if reg_reason:
+                reasons.append(reg_reason)
+        except FileNotFoundError:
+            reasons.append(f"state 文件不存在: {state_file}(无法校验 receipt 登记)")
+
+    # 5. outputs 满足 required_outputs
     fsm = WorkflowFSM()
     ok, missing = fsm.validate_completion(stage_id, outputs or {})
     if not ok:

@@ -42,7 +42,10 @@ R2='{"schema":"stage-subagent/v1","stage":"2","subagent":"contract/contract-desi
 R3='{"schema":"stage-subagent/v1","stage":"3","subagent":"orchestrator/services-analyst","token":"demo"}'
 R4='{"schema":"stage-subagent/v1","stage":"4","subagent":"orchestrator/git-client","token":"demo"}'
 R5A='{"schema":"stage-subagent/v1","stage":"5A","subagent":"codegen/node-codegen","token":"demo"}'
-# 正常路径:start + complete(带产出与 receipt)
+# 正常路径:签发 → 登记 → start + complete(带产出与 receipt)
+for r in "$R0" "$R1" "$R2" "$R3" "$R4" "$R5A"; do
+  python3 lib/transition.py register "$SF" --receipt "$r" >/dev/null
+done
 python3 lib/transition.py start "$SF" 0 >/dev/null
 python3 lib/transition.py complete "$SF" 0 --receipt "$R0" --outputs '{"execution_plan":"demo"}' >/dev/null
 # 契约已提供:显式带批准跳过需求/契约/方案/分支(演示模式)
