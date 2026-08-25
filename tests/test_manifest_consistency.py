@@ -47,10 +47,18 @@ def test_health_check_handler_exists():
 
 def test_delegation_subagents_have_agent_json():
     policy = _load("config/delegation-policy.json")
-    for stage, sub in policy.get("stage_subagent", {}).items():
-        d = ROOT / "agents" / sub
-        assert (d / "agent.json").exists(), f"stage {stage} 的 subagent 无 agent.json: {sub}"
-        assert (d / "prompt.md").exists(), f"stage {stage} 的 subagent 无 prompt.md: {sub}"
+    for stage, configured in policy.get("stage_subagent", {}).items():
+        if isinstance(configured, str):
+            subagents = [configured]
+        else:
+            subagents = list(configured.get("by_stack", {}).values())
+            skip_subagent = configured.get("skip_subagent")
+            if skip_subagent:
+                subagents.append(skip_subagent)
+        for sub in set(subagents):
+            d = ROOT / "agents" / sub
+            assert (d / "agent.json").exists(), f"stage {stage} 的 subagent 无 agent.json: {sub}"
+            assert (d / "prompt.md").exists(), f"stage {stage} 的 subagent 无 prompt.md: {sub}"
 
 
 def test_dag_and_policy_stages_align():

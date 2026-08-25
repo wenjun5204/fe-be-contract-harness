@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional, Union
 
 from lib.workflow_fsm import WorkflowFSM
 
@@ -28,14 +28,74 @@ def load_policy(path: Optional[str | Path] = None) -> dict:
     return json.loads(p.read_text(encoding="utf-8"))
 
 
-def issue_receipt(stage_id: str, subagent: str, token: str) -> dict:
-    """签发 dispatch receipt。token 由调用方(主 Agent)持有并回传;签发后须 register_receipt。"""
-    return {
+def _as_subagent_list(value: object) -> List[str]:
+    """将 receipt 或策略中的单/多 Agent 表示规范化为非空列表。"""
+    if isinstance(value, str):
+        return [value] if value else []
+    if isinstance(value, list) and all(isinstance(item, str) and item for item in value):
+        return value
+    return []
+
+
+def receipt_subagents(receipt: Optional[dict]) -> List[str]:
+    """读取 receipt 承载的执行 Agent，兼容 v1 的单 `subagent` 字段。"""
+    if not receipt:
+        return []
+    return _as_subagent_list(receipt.get("subagents") or receipt.get("subagent"))
+
+
+def resolve_subagents(
+    stage_id: str,
+    stacks: Optional[Iterable[str]] = None,
+    policy: Optional[dict] = None,
+    for_skip: bool = False,
+) -> List[str]:
+    """按阶段及实际技术栈解析执行 Agent。
+
+    普通阶段使用字符串配置；代码生成阶段使用 `by_stack` 映射。未传 stacks 时，
+    仅允许解析静态阶段，避免把候选 Agent 误当作实际执行者。
+    """
+    policy = policy if policy is not None else load_policy()
+    configured = policy.get("stage_subagent", {}).get(stage_id)
+    if isinstance(configured, str):
+        return [configured]
+    if not isinstance(configured, dict):
+        return []
+    if for_skip:
+        return _as_subagent_list(configured.get("skip_subagent"))
+    by_stack = configured.get("by_stack", {})
+    return [by_stack[stack] for stack in (stacks or []) if stack in by_stack]
+
+
+def allowed_subagents(stage_id: str, policy: Optional[dict] = None) -> List[str]:
+    """返回策略允许的 Agent 集合，供 receipt fail-closed 校验使用。"""
+    policy = policy if policy is not None else load_policy()
+    configured = policy.get("stage_subagent", {}).get(stage_id)
+    if isinstance(configured, str):
+        return [configured]
+    if isinstance(configured, dict):
+        return _as_subagent_list(configured.get("by_stack", {}).values())
+    return _as_subagent_list(configured)
+
+
+def issue_receipt(
+    stage_id: str,
+    subagent: Union[str, List[str]],
+    token: str,
+    action: str = "execute",
+) -> dict:
+    """签发 dispatch receipt，支持一个阶段由多个实际栈 Agent 共同执行。"""
+    subagents = _as_subagent_list(subagent)
+    receipt = {
         "schema": RECEIPT_SCHEMA,
         "stage": stage_id,
-        "subagent": subagent,
+        "subagent": subagents[0] if len(subagents) == 1 else None,
         "token": token,
+        "action": action,
     }
+    if len(subagents) > 1:
+        receipt["subagents"] = subagents
+    return receipt
 
 
 def validate_receipt(receipt: Optional[dict], stage_id: str) -> bool:
@@ -43,8 +103,27 @@ def validate_receipt(receipt: Optional[dict], stage_id: str) -> bool:
         receipt
         and receipt.get("schema") == RECEIPT_SCHEMA
         and receipt.get("stage") == stage_id
-        and receipt.get("subagent")
+        and receipt_subagents(receipt)
     )
+
+
+def validate_subagent_match(stage_id: str, receipt: Optional[dict], policy: Optional[dict] = None) -> Optional[str]:
+    """校验 receipt 中的实际 Agent 与阶段动作及策略匹配。"""
+    policy = policy if policy is not None else load_policy()
+    actual = receipt_subagents(receipt)
+    configured = policy.get("stage_subagent", {}).get(stage_id)
+    if not actual or not configured:
+        return None
+    if isinstance(configured, dict):
+        allowed = _as_subagent_list(
+            configured.get("skip_subagent") if receipt.get("action") == "skip" else list(configured.get("by_stack", {}).values())
+        )
+    else:
+        allowed = _as_subagent_list(configured)
+    unexpected = sorted(set(actual) - set(allowed))
+    if unexpected:
+        return f"subagent 不匹配:阶段允许 {allowed},实际 {actual}"
+    return None
 
 
 # ---- 登记 / 消费 / 防伪 ----
@@ -128,10 +207,10 @@ def validate_dispatch(
     if not validate_receipt(receipt, stage_id):
         reasons.append(f"receipt 无效或与阶段不匹配({stage_id})")
 
-    # 3. subagent 匹配
-    expected_sub = policy.get("stage_subagent", {}).get(stage_id)
-    if receipt and expected_sub and receipt.get("subagent") != expected_sub:
-        reasons.append(f"subagent 不匹配:期望 {expected_sub},实际 {receipt.get('subagent')}")
+    # 3. subagent 匹配（动态阶段校验实际 Agent 是否在该阶段允许集合内）
+    subagent_reason = validate_subagent_match(stage_id, receipt, policy)
+    if subagent_reason:
+        reasons.append(subagent_reason)
 
     # 4. 登记表校验(防伪造 + 一次性)
     if state_file is not None and validate_receipt(receipt, stage_id):

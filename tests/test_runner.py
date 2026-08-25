@@ -41,6 +41,20 @@ def test_auto_mode_completes_loop():
         assert state.exists()
 
 
+def test_java_vue_receipts_match_actual_codegen_agents():
+    """Java + Vue 时，5A/5B receipt 必须记录对应实际 codegen Agent。"""
+    with tempfile.TemporaryDirectory() as d:
+        out = Path(d) / "gen"
+        state = Path(d) / "state.json"
+        r = run(EXAMPLE, out, state, ["java", "vue"], auto=True)
+        assert r["ok"], r
+        st = read_state(state)["stages"]
+        assert st["5A"]["receipt"]["subagent"] == "codegen/java-codegen", st["5A"]
+        assert st["5B"]["receipt"]["subagent"] == "codegen/vue-codegen", st["5B"]
+        assert (out / "java" / "codegen-manifest.json").exists()
+        assert (out / "vue" / "codegen-manifest.json").exists()
+
+
 def test_non_auto_blocks_at_unmet_prereq():
     """非 auto:LLM 阶段仅签发指令;前置未就绪的确定性阶段被 transition 真实阻断。"""
     with tempfile.TemporaryDirectory() as d:
@@ -65,8 +79,9 @@ def test_non_auto_blocks_at_unmet_prereq():
 
 def main():
     test_auto_mode_completes_loop()
+    test_java_vue_receipts_match_actual_codegen_agents()
     test_non_auto_blocks_at_unmet_prereq()
-    print("OK: runner 自测通过(2 组断言)")
+    print("OK: runner 自测通过(3 组断言)")
 
 
 if __name__ == "__main__":

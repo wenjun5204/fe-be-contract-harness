@@ -11,6 +11,8 @@ from lib.delegation import (  # noqa: E402
     issue_receipt,
     load_policy,
     register_receipt,
+    resolve_subagents,
+    receipt_subagents,
     validate_dispatch,
     validate_receipt,
     validate_receipt_registered,
@@ -30,6 +32,26 @@ def test_valid_dispatch():
     r = issue_receipt("2", "contract/contract-designer", "tok-1")
     res = validate_dispatch("2", r, {"openapi_contract": "api.yaml"}, policy)
     assert res["ok"], res
+
+
+def test_dynamic_codegen_subagents():
+    """5A/5B 必须基于实际技术栈解析并校验 Agent，支持多栈 receipt。"""
+    policy = load_policy()
+    assert resolve_subagents("5A", ["java"], policy) == ["codegen/java-codegen"]
+    assert resolve_subagents("5B", ["vue"], policy) == ["codegen/vue-codegen"]
+    assert resolve_subagents("5A", ["node", "java"], policy) == [
+        "codegen/node-codegen", "codegen/java-codegen",
+    ]
+    assert resolve_subagents("5B", policy=policy, for_skip=True) == ["codegen/react-codegen"]
+
+    receipt = issue_receipt("5A", ["codegen/node-codegen", "codegen/java-codegen"], "tok-multi")
+    assert receipt_subagents(receipt) == ["codegen/node-codegen", "codegen/java-codegen"]
+    res = validate_dispatch("5A", receipt, {"changed_files": ["x"], "coverage": "ok"}, policy)
+    assert res["ok"], res
+
+    invalid = issue_receipt("5A", "codegen/react-codegen", "tok-wrong")
+    res = validate_dispatch("5A", invalid, {"changed_files": ["x"], "coverage": "ok"}, policy)
+    assert not res["ok"] and "subagent 不匹配" in " ".join(res["reasons"]), res
 
 
 def test_fail_closed():
@@ -87,10 +109,11 @@ def test_validate_registered_pure():
 def main():
     test_receipt()
     test_valid_dispatch()
+    test_dynamic_codegen_subagents()
     test_fail_closed()
     test_registered_gate()
     test_validate_registered_pure()
-    print("OK: delegation 自测通过(5 组断言)")
+    print("OK: delegation 自测通过(6 组断言)")
 
 
 if __name__ == "__main__":

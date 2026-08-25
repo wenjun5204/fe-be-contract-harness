@@ -35,12 +35,20 @@ def validate() -> dict:
     problems = []
     checked = []
 
-    # 1. policy 引用的 stage_subagent
-    for stage, subagent in sorted(subagents.items()):
-        r = check_agent(subagent)
-        checked.append({"stage": stage, "subagent": subagent, "ok": r["ok"]})
-        if not r["ok"]:
-            problems.append(f"Stage {stage} ({subagent}): {r['reason']}")
+    # 1. policy 引用的 stage_subagent（动态阶段展开 by_stack 的全部候选 Agent）
+    for stage, configured in sorted(subagents.items()):
+        if isinstance(configured, str):
+            stage_agents = [configured]
+        elif isinstance(configured, dict):
+            stage_agents = list(configured.get("by_stack", {}).values())
+        else:
+            stage_agents = []
+            problems.append(f"Stage {stage}: 无效的 stage_subagent 配置 {configured!r}")
+        for subagent in stage_agents:
+            r = check_agent(subagent)
+            checked.append({"stage": stage, "subagent": subagent, "ok": r["ok"]})
+            if not r["ok"]:
+                problems.append(f"Stage {stage} ({subagent}): {r['reason']}")
 
     # 2. 扫描 agents/ 下所有 agent 目录(agents/<layer>/<name>/)
     seen = {c["subagent"] for c in checked}

@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.contract.consistency import cross_stack_check  # noqa: E402
 from lib.contract.generator import write_out  # noqa: E402
 from lib.contract.verify import verify  # noqa: E402
-from lib.delegation import issue_receipt, load_policy  # noqa: E402
+from lib.delegation import issue_receipt, load_policy, resolve_subagents  # noqa: E402
 from lib.state_manager import actionable_stages, init_state, summary  # noqa: E402
 from lib.transition import TransitionError, complete_stage, skip_stage, start_stage  # noqa: E402
 
@@ -56,16 +56,25 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _stage_subagents(stage: str, policy: dict, stacks: Optional[List[str]] = None, *, for_skip: bool = False) -> List[str]:
+    """解析阶段本次实际执行（或跳过确认）的 Agent。"""
+    subagents = resolve_subagents(stage, stacks, policy, for_skip=for_skip)
+    if not subagents:
+        raise ValueError(f"阶段 {stage} 未解析到可用 subagent")
+    return subagents
+
+
 def _directive(stage: str, policy: dict, contract: str) -> dict:
     """为 LLM 阶段生成委派指令(subagent + receipt + 输入)。"""
-    subagent = policy.get("stage_subagent", {}).get(stage, "unknown")
-    receipt = issue_receipt(stage, subagent, token="runner")
+    subagents = _stage_subagents(stage, policy)
+    receipt = issue_receipt(stage, subagents, token="runner")
     return {
         "stage": stage,
-        "subagent": subagent,
+        "subagent": subagents[0] if len(subagents) == 1 else None,
+        "subagents": subagents,
         "receipt": receipt,
         "contract": contract,
-        "note": f"需要 {subagent} 执行(LLM 阶段,runner 仅签发委派)",
+        "note": f"需要 {', '.join(subagents)} 执行(LLM 阶段,runner 仅签发委派)",
     }
 
 
@@ -149,14 +158,14 @@ def run(
     frontend = [s for s in stacks if s in ("react", "vue")]
     for sid, group in (("5A", backend), ("5B", frontend)):
         if not group:
-            sub = policy.get("stage_subagent", {}).get(sid, "unknown")
+            subagents = _stage_subagents(sid, policy, for_skip=True)
             _try_transition(
                 state_file,
-                lambda sid=sid, sub=sub: skip_stage(
+                lambda sid=sid, subagents=subagents: skip_stage(
                     state_file, sid,
                     reason="无该端技术栈",
                     approved_by="runner:auto",
-                    receipt=_register(state_file, issue_receipt(sid, sub, "runner")),
+                    receipt=_register(state_file, issue_receipt(sid, subagents, "runner", action="skip")),
                 ),
                 events, sid, "skip", "无该端技术栈",
             )
@@ -175,7 +184,7 @@ def run(
                         "changed_files": files,
                         "coverage": "G1 verified(骨架生成,演示模式未跑真实覆盖率)",
                     },
-                    receipt=_register(state_file, issue_receipt(sid, policy.get("stage_subagent", {}).get(sid, "unknown"), "runner")),
+                    receipt=_register(state_file, issue_receipt(sid, _stage_subagents(sid, policy, group), "runner")),
                     checkpoint_decision="approve" if auto else None,
                     evidence=[{"type": "codegen", "detail": f"{sid}: {', '.join(group)}", "at": _now()}],
                 ),

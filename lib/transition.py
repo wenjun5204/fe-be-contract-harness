@@ -235,12 +235,16 @@ def skip_stage(
             problems.append(f"阶段 {stage_id} 缺少 dispatch receipt(委派 fail-closed)")
         else:
             # skip 无产出,不做 required_outputs 校验;但结构/subagent/登记三项必查
-            from lib.delegation import validate_receipt, validate_receipt_registered
+            from lib.delegation import (
+                validate_receipt,
+                validate_receipt_registered,
+                validate_subagent_match,
+            )
             if not validate_receipt(receipt, stage_id):
                 problems.append(f"receipt 无效或与阶段不匹配({stage_id})")
-            expected_sub = policy.get("stage_subagent", {}).get(stage_id)
-            if expected_sub and receipt.get("subagent") != expected_sub:
-                problems.append(f"subagent 不匹配:期望 {expected_sub},实际 {receipt.get('subagent')}")
+            subagent_reason = validate_subagent_match(stage_id, receipt, policy)
+            if subagent_reason:
+                problems.append(subagent_reason)
             reg_reason = validate_receipt_registered(state, stage_id, receipt)
             if reg_reason:
                 problems.append(reg_reason)

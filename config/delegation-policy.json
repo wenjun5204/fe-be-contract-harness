@@ -9,8 +9,20 @@
     "2": "contract/contract-designer",
     "3": "orchestrator/services-analyst",
     "4": "orchestrator/git-client",
-    "5A": "codegen/node-codegen",
-    "5B": "codegen/react-codegen",
+    "5A": {
+      "by_stack": {
+        "node": "codegen/node-codegen",
+        "java": "codegen/java-codegen"
+      },
+      "skip_subagent": "codegen/node-codegen"
+    },
+    "5B": {
+      "by_stack": {
+        "react": "codegen/react-codegen",
+        "vue": "codegen/vue-codegen"
+      },
+      "skip_subagent": "codegen/react-codegen"
+    },
     "6": "contract/consistency-checker",
     "7": "quality/code-review",
     "8": "quality/test-case-generator",
