@@ -3,7 +3,7 @@
   "id": "frontend-contract-conventions",
   "domain": "frontend",
   "entity": "FrontendContractConvention",
-  "type": "ui-contract",
+  "type": "convention",
   "status": "confirmed",
   "source": "user_document",
   "fields": [],

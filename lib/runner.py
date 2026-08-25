@@ -28,7 +28,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lib.contract.consistency import cross_stack_check  # noqa: E402
 from lib.contract.generator import write_out  # noqa: E402
+from lib.contract.parser import parse_contract  # noqa: E402
 from lib.contract.verify import verify  # noqa: E402
+from lib.context_orchestrator import build_dispatch_context  # noqa: E402
 from lib.delegation import issue_receipt, load_policy, resolve_subagents  # noqa: E402
 from lib.state_manager import actionable_stages, init_state, summary  # noqa: E402
 from lib.transition import TransitionError, complete_stage, skip_stage, start_stage  # noqa: E402
@@ -64,16 +66,25 @@ def _stage_subagents(stage: str, policy: dict, stacks: Optional[List[str]] = Non
     return subagents
 
 
-def _directive(stage: str, policy: dict, contract: str) -> dict:
-    """为 LLM 阶段生成委派指令(subagent + receipt + 输入)。"""
+def _directive(
+    stage: str,
+    policy: dict,
+    contract: str,
+    entities: Optional[List[str]] = None,
+    repo: Optional[str | Path] = None,
+    context_max_tokens: int = 4000,
+) -> dict:
+    """为 LLM 阶段生成包含受预算知识上下文的委派指令。"""
     subagents = _stage_subagents(stage, policy)
     receipt = issue_receipt(stage, subagents, token="runner")
+    context = build_dispatch_context(stage, contract, entities, repo, context_max_tokens)
     return {
         "stage": stage,
         "subagent": subagents[0] if len(subagents) == 1 else None,
         "subagents": subagents,
         "receipt": receipt,
         "contract": contract,
+        "context": context,
         "note": f"需要 {', '.join(subagents)} 执行(LLM 阶段,runner 仅签发委派)",
     }
 
@@ -109,10 +120,14 @@ def run(
     state_file: str | Path,
     stacks: List[str],
     auto: bool = False,
+    repo: Optional[str | Path] = None,
+    context_max_tokens: int = 4000,
 ) -> dict:
     contract = Path(contract)
     state_file = Path(state_file)
     policy = load_policy()
+    contract_model = parse_contract(contract)
+    entities = sorted(contract_model.get("schemas", {}).keys())
 
     # Stage 0: 初始化
     if not state_file.exists():
@@ -151,7 +166,7 @@ def run(
                 events, sid, "skip", reason,
             )
         else:
-            record(sid, "agent", _directive(sid, policy, str(contract)))
+            record(sid, "agent", _directive(sid, policy, str(contract), entities, repo, context_max_tokens))
 
     # ---- Stage 5A/5B: codegen(确定性) ----
     backend = [s for s in stacks if s in ("node", "java")]
@@ -225,7 +240,7 @@ def run(
                 events, sid, "skip", reason,
             )
         else:
-            record(sid, "agent", _directive(sid, policy, str(contract)))
+            record(sid, "agent", _directive(sid, policy, str(contract), entities, repo, context_max_tokens))
 
     # ---- Stage 10: 交付报告(确定性) ----
     _try_transition(
@@ -261,6 +276,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     r.add_argument("--state", default="state.json")
     r.add_argument("--stacks", default="react,vue,node,java")
     r.add_argument("--auto", action="store_true", help="演示自动模式(LLM 阶段显式跳过 + checkpoint 自动批准)")
+    r.add_argument("--repo", default=None, help="目标仓库路径；用于向 LLM 阶段注入相关仓库知识")
+    r.add_argument("--context-max-tokens", type=int, default=4000, help="单次委派的知识上下文 token 预算")
 
     s = sub.add_parser("status", help="查看状态")
     s.add_argument("--state", default="state.json")
@@ -269,7 +286,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.cmd == "run":
         stacks = [x.strip() for x in args.stacks.split(",") if x.strip()]
-        result = run(args.contract, args.out, args.state, stacks, auto=args.auto)
+        result = run(args.contract, args.out, args.state, stacks, auto=args.auto, repo=args.repo, context_max_tokens=args.context_max_tokens)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     elif args.cmd == "status":

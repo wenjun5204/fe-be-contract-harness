@@ -1,121 +1,493 @@
 # fe-be-contract-harness
 
-前后端**契约驱动 + SDD(规范驱动开发)** Harness —— 以 OpenAPI/Swagger 作为前后端**唯一事实源(SSOT)**,契约驱动生成 + 前后端一致性门控 + 结构化需求 Spec + 多平台运行。
+一个面向前后端协作的**契约驱动 SDLC Harness**。它以 OpenAPI 3.x 为前后端接口的唯一事实源（SSOT），把需求、契约、代码生成、质量校验、人工确认和交付串成一条可验证、可恢复的工作流。
 
-## 定位
+> 当前最适合的使用方式：把它当作“确定性流程内核 + Agent 协作协议”。
+> - 确定性部分可以本地直接运行、测试和校验；
+> - LLM 阶段会生成带 receipt 和知识上下文的 dispatch directive；
+> - 真正由 CatPaw / Claude Code / OpenClaw 等平台启动 Agent、回传结果的适配仍需按目标平台验证。
 
-- **范围**:完整 SDLC(需求 → 方案 → 编码 → 评审 → 测试 → 部署 → 交付)
-- **前端**:React + Vue 双栈
-- **后端**:Java(Spring) + Node(Nest) 双栈
-- **契约**:OpenAPI 3.x 作为前后端唯一合同
-- **平台**:CatPaw / CatClaw / Claude Code / Codex / OpenClaw / OpenCode
+---
 
-## 设计文档
+## 目录
 
-完整设计见(同一工作区):
+- [它解决什么问题](#它解决什么问题)
+- [核心概念](#核心概念)
+- [工作流总览](#工作流总览)
+- [5 分钟体验](#5-分钟体验)
+- [常用命令](#常用命令)
+- [运行 Runner 与 Agent 委派](#运行-runner-与-agent-委派)
+- [知识库与自动上下文](#知识库与自动上下文)
+- [状态、门控与人工确认](#状态门控与人工确认)
+- [契约能力与支持范围](#契约能力与支持范围)
+- [测试与目录结构](#测试与目录结构)
+- [当前边界](#当前边界)
 
-- `../learn/skills-for-regan/docs/architecture/fe-be-harness-design.md`(§0–§19)
+---
 
-## 能力全景
+## 它解决什么问题
 
-| 类别 | 能力 | 实现 |
-|------|------|------|
-| **契约驱动** | OpenAPI 解析、四栈 codegen、G1 生成门、跨栈一致性、漂移检测 | `lib/contract/` + `lib/stack/` |
-| **SDD** | 结构化需求 Spec、领域知识库、仓库知识库、可行性验证、经验沉淀 | `lib/requirements_spec.py` / `domain_knowledge.py` / `repo_knowledge.py` / `feasibility.py` / `experience.py` |
-| **执行/门控** | FSM、状态机/断点续跑、委派协议、checkpoint、覆盖率门控+采集 | `lib/workflow_fsm.py` / `state_manager.py` / `delegation.py` / `checkpoint_manager.py` / `coverage_gate.py` / `coverage_collector.py` |
-| **编排/韧性** | 编排 runner、路径规划、波次并行、上下文编排、智能重试、依赖自愈、通知 | `lib/runner.py` / `planner/` / `parallel_wave_scheduler.py` / `context_orchestrator.py` / `smart_retry.py` / `self_heal.py` / `notifier.py` |
-| **代码理解** | 代码知识图、双审查员评审+四源聚合 | `lib/code_graph.py` / `code_review.py` |
-| **智能层** | 25 个 agent(富 prompt + references)、3 skills、6 commands、8 hooks | `agents/` / `skills/` / `commands/` / `hooks/` |
+传统前后端协作常见的问题包括：接口文档与实现漂移、前后端类型不一致、需求没有被结构化、AI Agent 绕过必要检查、多人或多 Agent 的结果无法审计。
 
-## 快速上手
+Harness 的对应机制如下：
 
-```bash
-# 契约驱动生成
-python3 lib/contract/cli.py generate examples/petstore.yaml --stack node --out gen/node
-python3 lib/contract/cli.py verify examples/petstore.yaml --stack node   # G1 生成门
-python3 lib/contract/cli.py check examples/petstore.yaml                  # 跨栈一致性
-python3 lib/contract/cli.py drift examples/petstore.yaml --stack node --gen-dir gen/node
+| 问题 | 机制 |
+|---|---|
+| 接口定义分散 | OpenAPI 契约作为 SSOT |
+| 多栈重复定义类型 | 从同一契约生成 React / Vue / Node / Java 骨架 |
+| 生成结果质量不稳定 | G1 生成门、跨栈一致性检查、漂移检测 |
+| 需求不完整就进入开发 | 结构化 `requirements_spec` 与 Stage 1 硬门控 |
+| Agent 声称完成但没有证据 | receipt 登记、一次性消费、产出与 evidence 门控 |
+| 需要人工判断的节点被跳过 | checkpoint：approve / revise / skip |
+| Agent 缺少项目和业务上下文 | 领域知识、仓库知识、按 Stage/实体/预算生成的 dispatch context |
 
-# 编排 runner(确定性阶段真实执行,LLM 阶段签发委派指令;终态一律经 transition 门控)
-python3 lib/runner.py run examples/petstore.yaml --out gen --state state.json
-python3 lib/runner.py run examples/petstore.yaml --out gen --state state.json --auto   # 演示自动模式
+---
 
-# 唯一状态迁移入口(FSM + 前置 + 产出 + receipt 登记 + checkpoint + evidence 全门控)
-python3 lib/transition.py init state.json 2>/dev/null || python3 lib/state_manager.py init state.json demo
-python3 lib/transition.py register state.json --receipt '<json>'   # 委派后先登记(receipt 防伪)
-python3 lib/transition.py start state.json 0
-python3 lib/transition.py complete state.json 0 --receipt '<json>' --outputs '<json>'
-python3 lib/transition.py skip state.json 1 --reason "契约已提供" --approved-by <who> --receipt '<json>'
-python3 lib/transition.py fail state.json 5A --reason "<原因>"
-python3 lib/transition.py retry state.json 5A
-python3 lib/state_manager.py summary state.json          # 进度汇总(只读)
+## 核心概念
 
-# 端到端演示(四栈生成 → G1 门 → 一致性 → transition 门控闭环)
-npm run demo
+### 1. 契约（Contract）
 
-# 结构化需求 Spec 校验 / 模糊点识别 / 可行性验证
-python3 -c "from lib.requirements_spec import validate_requirements_completion; ..."
-python3 lib/domain_knowledge.py gaps <spec.json>
-python3 lib/feasibility.py <spec.json> <repo>
+OpenAPI 3.x 文件，例如 `examples/petstore.yaml`。它描述接口、模型、请求和响应，是代码生成、一致性检查与漂移检测的输入。
 
-# 仓库/领域知识冷启动
-python3 lib/repo_knowledge.py scaffold <repo> --name <项目名>
-python3 lib/domain_knowledge.py seed business order "..."
+### 2. Stage（阶段）
+
+工作流由 12 个阶段组成。阶段 ID 使用 `0` 到 `10`，其中 Stage 5 分为 `5A`（后端）和 `5B`（前端），因此总数是 12。
+
+### 3. 状态文件（state.json）
+
+每次运行都有一个状态文件，记录各阶段的状态、输出、receipt、checkpoint、evidence 和时间。它支持查看进度和断点续跑。
+
+### 4. Receipt（委派凭据）
+
+主 Agent 或 runner 签发子 Agent 任务时生成的凭据。阶段完成或跳过前必须先登记 receipt；终态后 receipt 被消费，不能重放。
+
+### 5. Checkpoint（人工卡点）
+
+对需求、契约、一致性、交付等高风险阶段设置人工确认。确认可以：
+
+- `approve`：接受结果，进入 completed；
+- `revise`：要求修订，回到 running；
+- `skip`：仅在该 checkpoint 类型允许时跳过。
+
+### 6. Dispatch context（派发上下文）
+
+runner 为 LLM 阶段签发任务时，附带的 `dispatch-context/v1`。它会根据：
+
+1. 当前 Stage；
+2. OpenAPI 的 schema 实体；
+3. 可选目标仓库的 `.agents/docs/`；
+4. token 预算；
+
+自动选择相关领域知识和仓库知识。上下文缺失不会阻断冷启动，而会写入 `warnings`。
+
+---
+
+## 工作流总览
+
+```text
+输入需求 / OpenAPI
+        │
+        ▼
+0 初始化
+        │
+        ▼
+1 需求分析 ──人工确认──► 2 契约设计 ──人工确认──► 3 仓库识别与技术方案
+        │                                                   │
+        │                                                   ▼
+        └──────────────────────────────────────────────► 4 分支管理
+                                                            │
+                                           ┌────────────────┴────────────────┐
+                                           ▼                                 ▼
+                                      5A 后端实现                        5B 前端实现
+                                           └────────────────┬────────────────┘
+                                                            ▼
+                                               6 前后端一致性校验
+                                                      ──人工确认──►
+                                           ┌────────────────┴────────────────┐
+                                           ▼                                 ▼
+                                      7 提交与 PR                       8 测试用例生成
+                                           └────────────────┬────────────────┘
+                                                            ▼
+                                                    9 提测与部署
+                                                            ▼
+                                                   10 交付报告
 ```
 
-## 门控闭环(第一阶段)
+### 阶段说明
 
-任何阶段到达终态(completed / skipped)必须经过 `lib/transition.py`,形成不可绕过的执行链:
+| Stage | 名称 | 主要产出 | checkpoint |
+|---|---|---|---|
+| 0 | 初始化 | `execution_plan` | 无 |
+| 1 | 需求分析 | 需求文档、结构化 Spec、质量门结果 | `mandatory_review` |
+| 2 | 接口契约设计 | `openapi_contract` | `mandatory_review` |
+| 3 | 仓库识别与技术方案 | 仓库确认、设计文档 | `mandatory_review` |
+| 4 | 分支管理 | `branch_name` | 无 |
+| 5A | 后端实现 | 变更文件、覆盖率 | 无 |
+| 5B | 前端实现 | 变更文件、覆盖率 | 无 |
+| 6 | 前后端一致性校验 | 一致性报告 | `mandatory_review` |
+| 7 | 提交与 PR | `pr_url` | `artifact_review` |
+| 8 | 测试用例生成 | `test_cases` | `artifact_review` |
+| 9 | 提测与部署 | `deploy_result` | `artifact_review` |
+| 10 | 交付报告 | `delivery_report` | `artifact_review` |
 
-1. **FSM 转换合法性** —— 非法状态转换直接拒绝
-2. **前置就绪** —— DAG 前置阶段全部终态才可推进(并行汇合自动处理)
-3. **必需产出** —— `required_outputs` 缺失即阻断(Stage 1 含结构化 Spec 硬校验)
-4. **委派 fail-closed** —— dispatch receipt 必须先 `register` 登记到 state(签发→登记→消费,一次性防重放/防伪造)
-5. **checkpoint 人工卡点** —— mandatory_review 不可 skip;approve/skip 才可终态,revise 回到 running
-6. **审计落盘** —— outputs / receipt / checkpoint / evidence / completed_at 随状态原子写入
+### 当前 runner 的执行方式
 
-> `state_manager.set_stage_state` 仅为低层运维写(恢复/调试),不参与正式流程;CLI 已不暴露 set-state。
-> hooks 统一走 JSON event protocol:`echo '<事件JSON>' | hooks/<guard>`,输出 `{"allow": bool, ...}`;
-> 平台原始事件经 `lib/platform/event_adapter.py` normalize 为标准 envelope(hooks 支持 `--platform <name>` 自动转换)。
+| 类型 | 阶段 | 当前行为 |
+|---|---|---|
+| 确定性执行 | 0、5A、5B、6、10 | 本地执行或生成，并通过 `transition` 进入终态 |
+| LLM 委派 | 1、2、3、4、7、8、9 | 非 `--auto` 时只生成 dispatch directive，不会伪造完成 |
+| 演示自动模式 | `--auto` | 对 LLM 阶段记录带批准的 skip；自动批准 checkpoint，用于本地完整演示 |
 
-## 测试
+---
 
-`npm test` 全绿:**27 套确定性自测(含 transition 门控闭环 + hooks 协议 + manifest 一致性)+ agent 完整性校验(25 agents)+ eval 评测**;CI 另跑 `pytest tests/` 结构化收集层与端到端演示。
+## 5 分钟体验
+
+### 前置依赖
+
+- Python 3.8+；
+- `pyyaml`（解析 YAML OpenAPI）；
+- Node.js 18+（用于 `npm` 脚本；生成核心本身主要依赖 Python）。
+
+### 1. 运行完整演示
 
 ```bash
-npm run validate   # 校验 manifest JSON
-npm test           # 全量冒烟(24 套自测)
-npm run check      # 校验 + 冒烟
+npm run demo
+```
+
+演示会在临时目录完成：四栈生成、G1 校验、跨栈一致性、状态迁移门控、覆盖率门控和 delegation hook 校验。不会在仓库中留下生成产物。
+
+### 2. 生成一个栈的代码
+
+```bash
+python3 lib/contract/cli.py generate examples/petstore.yaml \
+  --stack node \
+  --out gen/node
+```
+
+可用栈：
+
+```bash
+python3 lib/contract/cli.py stacks
+```
+
+当前包含 React、Vue、Node、Java。
+
+### 3. 运行契约校验
+
+```bash
+# G1：生成器是否可稳定从契约生成该技术栈产物
+python3 lib/contract/cli.py verify examples/petstore.yaml --stack node
+
+# 四栈模型是否一致
+python3 lib/contract/cli.py check examples/petstore.yaml
+
+# 已生成产物是否与最新契约漂移
+python3 lib/contract/cli.py drift examples/petstore.yaml \
+  --stack node \
+  --gen-dir gen/node
+```
+
+### 4. 运行编排器
+
+```bash
+# 非自动模式：生成 LLM 阶段 directive，并真实执行确定性阶段可推进的部分
+python3 lib/runner.py run examples/petstore.yaml \
+  --out gen \
+  --state state.json \
+  --stacks node,react
+
+# 自动演示模式：显式跳过 LLM 阶段，走完整状态机闭环
+python3 lib/runner.py run examples/petstore.yaml \
+  --out gen \
+  --state state.json \
+  --stacks node,react \
+  --auto
+
+# 查看状态
+python3 lib/runner.py status --state state.json
+```
+
+> 建议将 `state.json` 和 `gen/` 作为运行产物处理，不要提交到业务代码仓库。
+
+---
+
+## 常用命令
+
+### 契约命令
+
+```bash
+# 列出技术栈
+python3 lib/contract/cli.py stacks
+
+# 生成
+python3 lib/contract/cli.py generate <openapi.yaml> --stack <react|vue|node|java> --out <目录>
+
+# G1 生成门
+python3 lib/contract/cli.py verify <openapi.yaml> --stack <技术栈>
+
+# 跨栈一致性
+python3 lib/contract/cli.py check <openapi.yaml>
+
+# 漂移检测
+python3 lib/contract/cli.py drift <openapi.yaml> --stack <技术栈> --gen-dir <生成目录>
+```
+
+### Runner 命令
+
+```bash
+python3 lib/runner.py run <openapi.yaml> \
+  --out <生成目录> \
+  --state <状态文件> \
+  --stacks react,vue,node,java \
+  --repo <可选目标业务仓库> \
+  --context-max-tokens 4000
+
+python3 lib/runner.py status --state <状态文件>
+```
+
+参数说明：
+
+| 参数 | 含义 |
+|---|---|
+| `--out` | 各栈生成产物根目录，默认 `gen` |
+| `--state` | 工作流状态文件，默认 `state.json` |
+| `--stacks` | 需要处理的技术栈，逗号分隔 |
+| `--auto` | 演示自动模式，不是正式人工审批替代品 |
+| `--repo` | 目标业务仓库；用于读取 `.agents/docs/` 仓库知识 |
+| `--context-max-tokens` | 每个 LLM directive 的知识上下文预算，默认 4000 |
+
+---
+
+## 运行 Runner 与 Agent 委派
+
+### 非自动模式会输出什么
+
+非 `--auto` 运行时，LLM 阶段的 `events` 会包含 `kind: "agent"`。`detail` 是一份 dispatch directive，结构类似：
+
+```json
+{
+  "stage": "2",
+  "subagent": "contract/contract-designer",
+  "receipt": {
+    "schema": "stage-subagent/v1",
+    "stage": "2",
+    "subagent": "contract/contract-designer",
+    "token": "runner",
+    "action": "execute"
+  },
+  "contract": "examples/petstore.yaml",
+  "context": {
+    "schema": "dispatch-context/v1",
+    "entities": ["Pet"],
+    "max_tokens": 4000,
+    "sections": [
+      {"name": "agenda", "text": "...", "estimated_tokens": 20}
+    ],
+    "warnings": []
+  }
+}
+```
+
+真实平台适配器应：
+
+1. 选择 `subagent` 对应 Agent；
+2. 将 `context.text` 和 `contract` 注入 Agent 上下文；
+3. 保留 receipt 并在 Agent 回传时使用；
+4. 让 Agent 提交 `outputs`、`evidence`；
+5. 通过 `lib/transition.py` 推进阶段，而不是直接改状态文件。
+
+### 手工推进一个阶段
+
+这是理解门控机制的最小示例。实际平台应自动完成这些动作。
+
+```bash
+# 先初始化状态文件
+python3 lib/state_manager.py init state.json demo
+
+# 1. 用 directive 中的 receipt 登记，防伪造
+python3 lib/transition.py register state.json --receipt '<receipt JSON>'
+
+# 2. 开始阶段（会检查前置）
+python3 lib/transition.py start state.json 0
+
+# 3. 提交产物、证据和 receipt
+python3 lib/transition.py complete state.json 0 \
+  --receipt '<receipt JSON>' \
+  --outputs '{"execution_plan":"demo"}' \
+  --evidence '[{"type":"plan","detail":"demo"}]'
+
+# 查看汇总
+python3 lib/state_manager.py summary state.json
+```
+
+如果当前 Stage 带 checkpoint，`complete` 且未提供 `--checkpoint` 时会进入 `checkpoint_pending`。随后可带相同 receipt 执行：
+
+```bash
+python3 lib/transition.py complete state.json <stage> \
+  --receipt '<receipt JSON>' \
+  --outputs '<outputs JSON>' \
+  --checkpoint approve
+```
+
+常用恢复命令：
+
+```bash
+python3 lib/transition.py fail state.json 5A --reason "生成失败"
+python3 lib/transition.py retry state.json 5A
+```
+
+---
+
+## 知识库与自动上下文
+
+Harness 有两类知识，**不要混用**。
+
+### 领域知识：跨项目复用的已确认业务规则
+
+位置：`config/domain-knowledge/`。
+
+适合记录实体字段语义、状态流转、错误码、权限、前端展示契约和 QA 验收规则。条目有 `confirmed`、`assumption`、`deprecated` 状态；AI 推断不能直接写入 `confirmed`。
+
+```bash
+# 按关键词检索
+python3 lib/domain_knowledge.py search "订单" --domain business
+
+# 检查一条知识的 Schema
+python3 lib/domain_knowledge.py validate config/domain-knowledge/business/order.md
+
+# 根据结构化需求 Spec 查看实体/字段/状态/错误码覆盖缺口
+python3 lib/domain_knowledge.py gaps <spec.json> --domain business
+```
+
+领域知识会按 OpenAPI schema 实体过滤后进入 dispatch context；`convention` 类型的跨实体约定会始终进入相关 Stage。
+
+### 仓库知识：目标项目的实现事实
+
+位置：目标业务仓库的 `AGENTS.md` 和 `.agents/`。
+
+```bash
+# 校验目标仓库是否可构建知识库
+python3 lib/repo_knowledge.py validate-repo <repo>
+
+# 安全创建骨架；默认不覆盖已有文件
+python3 lib/repo_knowledge.py scaffold <repo> --name <项目名> --mode create
+
+# 确定性扫描技术栈、目录、关键文件与建议命令
+python3 lib/repo_knowledge.py build <repo>
+
+# 验证核心文档已填充，不再只是占位符
+python3 lib/repo_knowledge.py validate-knowledge <repo>
+```
+
+仓库知识的关键文件：
+
+```text
+<repo>/
+├── AGENTS.md
+└── .agents/
+    ├── docs/
+    │   ├── architecture.md
+    │   ├── conventions.md
+    │   ├── domain-model.md
+    │   └── services/
+    └── test-examples/
+```
+
+### 自动上下文如何选择
+
+在 runner 中提供 `--repo` 后，会按 Stage 选择所需上下文：
+
+| Stage | 领域知识 | 仓库知识 |
+|---|---|---|
+| 1 需求分析 | business、qa | `domain-model.md` |
+| 2 契约设计 | business、backend、frontend | domain-model、conventions |
+| 3 技术方案 | business | architecture、conventions、domain-model |
+| 5A 后端实现 | business、backend | architecture、conventions、domain-model |
+| 5B 前端实现 | business、frontend | architecture、conventions、domain-model |
+| 6 一致性 | business | architecture、domain-model |
+| 7 评审 | business | conventions |
+| 8 测试 | business、qa | domain-model、test-examples |
+
+如果预算不足，低优先级 section 会被省略并写进 `omitted_sections`；规则不会被截断成半段。
+
+---
+
+## 状态、门控与人工确认
+
+所有正式终态都必须经过 `lib/transition.py`。门控顺序如下：
+
+1. **FSM 合法性**：例如 pending 才能 start，running 才能 complete；
+2. **前置就绪**：前置阶段必须 completed 或 skipped；
+3. **必需产出**：必须满足 DAG 的 `required_outputs`；
+4. **委派 fail-closed**：receipt 的 schema、阶段、Agent、登记状态都必须正确；
+5. **checkpoint**：需要人工确认时不可直接进入终态；
+6. **审计落盘**：outputs、receipt、evidence、checkpoint、完成时间写入状态文件；
+7. **receipt 消费**：终态后凭据不可再次使用。
+
+> `lib/state_manager.py` 的低层状态写能力仅用于恢复/调试。正式业务流程不要直接修改 `state.json`。
+
+---
+
+## 契约能力与支持范围
+
+### 当前支持
+
+- YAML / JSON OpenAPI 3.x；
+- components schemas、基础类型、object、array、enum、`$ref`；
+- JSON request body 和首个 2xx JSON response；
+- React、Vue、Node、Java 的骨架生成；
+- G1 生成门、跨栈一致性、生成产物漂移检测。
+
+### 当前限制
+
+- `allOf`、`oneOf`、`anyOf` 尚未完整支持；
+- OpenAPI parser 是面向当前生成器的子集，不是完整 OpenAPI 实现；
+- 生成结果是契约骨架，不替代业务逻辑、真实 DB、鉴权、完整测试或生产部署。
+
+---
+
+## 测试与目录结构
+
+### 测试
+
+```bash
+npm run validate   # 校验 manifest / JSON 描述文件
+npm test           # 全量确定性冒烟测试
+npm run check      # validate + test
 npm run demo       # 端到端演示
 ```
 
-## 目录结构
+`npm test` 会执行 FSM、状态管理、契约解析、四栈生成、委派、checkpoint、hooks、知识库、上下文编排、runner、评测集等自测。
 
-```
+### 目录结构
+
+```text
 fe-be-contract-harness/
-├── harness-manifest.json / openclaw.plugin.json / .claude-plugin/   # 平台描述符
-├── agents/          # 25 个智能体(orchestrator/contract/codegen/quality + _shared)
-├── hooks/           # 8 个事件拦截器(contract-drift/delegation/checkpoint/coverage/...)
-├── skills/          # 3 个 skill(主 workflow + build-repo-knowledge + build-domain-knowledge)
-├── commands/        # 6 个斜杠命令
-├── lib/             # 确定性内核(~35 模块:contract/stack/planner + SDD + 编排韧性)
-├── config/          # delegation-policy / contract-spec / coverage-config / domain-knowledge / experience
-├── examples/        # 示例契约(petstore.yaml)
-├── evals/           # 评测集(cases + runner)
-└── tests/           # 24 套确定性自测
+├── agents/                  # orchestrator / contract / codegen / quality Agents
+├── commands/                # 斜杠命令定义
+├── config/                  # 委派策略、契约规范、覆盖率、领域知识等
+├── evals/                   # 契约回归评测集
+├── examples/                # 示例 OpenAPI 契约
+├── hooks/                   # delegation / checkpoint / coverage 等守卫
+├── lib/                     # 确定性内核
+│   ├── contract/            # 解析、生成、验证、一致性、漂移
+│   ├── stack/               # 四技术栈 adapter
+│   ├── runner.py            # 工作流 runner
+│   ├── transition.py        # 唯一正式状态迁移入口
+│   ├── context_orchestrator.py
+│   ├── domain_knowledge.py
+│   └── repo_knowledge.py
+├── skills/                  # 主工作流、领域知识、仓库知识 Skills
+└── tests/                   # 确定性自测
 ```
 
-## 现状与边界
+---
 
-- ✅ **确定性内核完整**:契约→生成→门控→一致性→漂移→委派(登记防伪)→checkpoint→覆盖率,全链路可测可跑
-- ✅ **SDD 前半段打通**:领域/仓库知识 → 模糊点识别 → 可行性验证 → 结构化 Spec(硬门控)
-- ✅ **执行闭环**:唯一 transition 入口 + receipt 登记/消费(一次性)+ hooks JSON event protocol + manifest 一致性自测
-- ⚠️ **待接真实运行时**:LLM 阶段(需求分析/契约设计/评审)由 agent 定义 + 确定性 runner 驱动,但真实 LLM 派发需接 CatPaw/Claude Code/OpenClaw 运行时;平台原始事件 → hook envelope 的精确映射(`lib/platform/event_adapter.py`)为「尽力提取」,需在真实运行时上验证后固化
-- ⚠️ **OpenAPI 解析是子集**:支持 `$ref`/array/object/enum/基础类型,`allOf/oneOf/anyOf` 待扩展
+## 当前边界
 
-## 依赖
-
-- python3 ≥ 3.8 + pyyaml(解析 YAML 契约)
-- node ≥ 18(可选,前端栈构建)
-
-> 参考 super-assistant 设计,差异化在「契约驱动 + SDD」;详见设计文档。
+- ✅ 契约解析、四栈生成、G1、跨栈一致性、状态机、receipt、checkpoint、覆盖率门控等确定性能力可本地运行和测试；
+- ✅ 领域知识与仓库知识可被校验，并可以自动进入 LLM dispatch context；
+- ✅ 非自动 runner 不会把 LLM 阶段伪装成已完成；
+- ⚠️ 真实平台的“启动 Agent → 回传 StageResult → 调用 transition”适配尚需在 CatPaw / Claude Code / OpenClaw 等目标运行时完成并验证；
+- ⚠️ `workflow-dag.json` 定义了并行分支关系；通用 `parallel_wave_scheduler` 已可用，但 runner 当前仍以顺序循环调度确定性分支；
+- ⚠️ `--auto` 仅用于本地演示和测试，不应替代真实人工审批与部署。

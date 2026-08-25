@@ -3,7 +3,7 @@
   "id": "qa-contract-conventions",
   "domain": "qa",
   "entity": "QaConvention",
-  "type": "qa-case",
+  "type": "convention",
   "status": "confirmed",
   "source": "user_document",
   "fields": [],
