@@ -1,9 +1,19 @@
-# 前端约定(frontend)
+---
+{
+  "id": "frontend-contract-conventions",
+  "domain": "frontend",
+  "entity": "FrontendContractConvention",
+  "type": "ui-contract",
+  "status": "confirmed",
+  "source": "user_document",
+  "fields": [],
+  "states": [],
+  "error_codes": []
+}
+---
 
-> 前端方向领域知识:组件/请求层/mock 约定。
+# 前端约定
 
-## 约定
-
-- 请求层统一从契约派生(勿手改),业务组件用 hooks 消费
-- 接口 mock 用契约派生的 MSW,不手写
-- 状态字段展示用枚举映射(如 PENDING → "待支付")
+- 请求层统一从契约派生，不手改生成结果；业务组件通过 hooks 消费请求能力。
+- 接口 mock 使用契约派生的 MSW，不手写脱离契约的 mock。
+- 状态字段展示必须使用枚举映射，例如 `PENDING` 映射为“待支付”。

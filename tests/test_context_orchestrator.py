@@ -9,9 +9,13 @@ from lib.context_orchestrator import budget_context, orchestrate, select_section
 
 
 def test_select_sections():
-    # 需求分析只注入领域,评审只注入规范,技术方案全量
-    assert "domain-model" in select_sections("1")
+    # 需求分析注入业务/QA 知识；实现阶段按端注入；评审仍保留工程规范。
+    assert "business-knowledge" in select_sections("1")
+    assert "qa-knowledge" in select_sections("1")
     assert "architecture" not in select_sections("1")
+    assert "backend-knowledge" in select_sections("5A")
+    assert "frontend-knowledge" not in select_sections("5A")
+    assert "frontend-knowledge" in select_sections("5B")
     assert "conventions" in select_sections("7")
     assert "architecture" in select_sections("3")
 
@@ -28,9 +32,12 @@ def test_budget_context():
 
 
 def test_orchestrate():
-    sections = {"agenda": "AG", "domain-model": "DM", "architecture": "ARCH"}
+    sections = {
+        "agenda": "AG", "business-knowledge": "BUS", "qa-knowledge": "QA",
+        "domain-model": "DM", "architecture": "ARCH",
+    }
     out = orchestrate("1", sections)
-    assert "AG" in out and "DM" in out and "ARCH" not in out
+    assert "AG" in out and "BUS" in out and "QA" in out and "DM" in out and "ARCH" not in out
 
 
 def main():

@@ -9,14 +9,14 @@ from typing import Dict, List, Optional
 
 # 阶段 → 需要注入的 section(对齐 skills/build-repo-knowledge 的按阶段注入映射)
 STAGE_SECTIONS = {
-    "1": ["agenda", "domain-model"],                                    # 需求分析 → 领域
-    "2": ["agenda", "domain-model", "conventions"],                     # 契约设计
-    "3": ["agenda", "architecture", "conventions", "domain-model"],     # 技术方案 → 全量
-    "5A": ["agenda", "architecture", "conventions", "domain-model"],    # 后端实现 → 全量
-    "5B": ["agenda", "architecture", "conventions", "domain-model"],    # 前端实现 → 全量
-    "6": ["agenda", "architecture", "domain-model"],                    # 一致性校验
-    "7": ["agenda", "conventions"],                                     # 评审 → 规范
-    "8": ["agenda", "domain-model", "test-examples"],                   # 测试用例 → 领域+测试
+    "1": ["agenda", "business-knowledge", "qa-knowledge", "domain-model"],
+    "2": ["agenda", "business-knowledge", "backend-knowledge", "frontend-knowledge", "domain-model", "conventions"],
+    "3": ["agenda", "architecture", "conventions", "business-knowledge", "domain-model"],
+    "5A": ["agenda", "architecture", "conventions", "business-knowledge", "backend-knowledge", "domain-model"],
+    "5B": ["agenda", "architecture", "conventions", "business-knowledge", "frontend-knowledge", "domain-model"],
+    "6": ["agenda", "architecture", "business-knowledge", "domain-model"],
+    "7": ["agenda", "conventions", "business-knowledge"],
+    "8": ["agenda", "business-knowledge", "qa-knowledge", "domain-model", "test-examples"],
     "9": ["agenda"],                                                    # 部署
     "10": ["agenda"],                                                   # 交付
 }
@@ -53,7 +53,7 @@ def budget_context(sections: List[dict], max_tokens: int) -> List[dict]:
 
 
 def orchestrate(stage: str, sections: Dict[str, str], max_tokens: Optional[int] = None) -> str:
-    """按阶段编排上下文:选 section + 预算裁剪,拼成一段上下文。"""
+    """按阶段编排上下文：优先注入按实体检索后的领域知识，再按预算裁剪。"""
     names = select_sections(stage)
     items = [{"name": n, "text": sections.get(n, ""), "priority": i} for i, n in enumerate(names) if sections.get(n)]
     if max_tokens:

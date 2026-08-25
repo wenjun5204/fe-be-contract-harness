@@ -74,7 +74,9 @@ def allowed_subagents(stage_id: str, policy: Optional[dict] = None) -> List[str]
     if isinstance(configured, str):
         return [configured]
     if isinstance(configured, dict):
-        return _as_subagent_list(configured.get("by_stack", {}).values())
+        # 允许集合 = by_stack 候选 + skip 候选(去重保序);dict_values 需先转 list 再规范化
+        candidates = list(configured.get("by_stack", {}).values()) + _as_subagent_list(configured.get("skip_subagent"))
+        return list(dict.fromkeys(candidates))
     return _as_subagent_list(configured)
 
 

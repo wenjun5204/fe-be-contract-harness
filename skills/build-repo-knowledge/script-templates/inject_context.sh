@@ -1,21 +1,38 @@
 #!/usr/bin/env bash
-# 注入全量知识库上下文(AGENTS.md + architecture + conventions + domain-model + services)
-# 用于 Stage 3(技术方案)/Stage 5A/5B(实现)的 before 注入
+# 按需注入仓库上下文；默认只输出索引和三份核心文档，不再全量加载服务文档。
+# 用法: inject_context.sh [--service <name>] [--max-chars <n>]
+set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AGENTS_DOCS="$REPO_ROOT/.agents/docs"
+SERVICE=""
+MAX_CHARS=12000
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --service) SERVICE="${2:?--service 需要服务名}"; shift 2 ;;
+    --max-chars) MAX_CHARS="${2:?--max-chars 需要整数}"; shift 2 ;;
+    *) echo "未知参数: $1" >&2; exit 2 ;;
+  esac
+done
+
+used=0
+emit_file() {
+  local file="$1" label="$2"
+  [ -f "$file" ] || return 0
+  local remaining=$((MAX_CHARS - used))
+  [ "$remaining" -gt 0 ] || return 0
+  local content
+  content="$(head -c "$remaining" "$file")"
+  printf '%s\n%s\n\n' "--- $label ---" "$content"
+  used=$((used + ${#content}))
+}
 
 echo "=== {{PROJECT_NAME}} 仓库上下文 ==="
-echo ""
-
-[ -f "$REPO_ROOT/AGENTS.md" ] && { echo "--- AGENTS.md 索引 ---"; cat "$REPO_ROOT/AGENTS.md"; echo ""; }
-[ -f "$AGENTS_DOCS/architecture.md" ] && { echo "--- 架构设计 ---"; cat "$AGENTS_DOCS/architecture.md"; echo ""; }
-[ -f "$AGENTS_DOCS/conventions.md" ] && { echo "--- 编码规范 ---"; cat "$AGENTS_DOCS/conventions.md"; echo ""; }
-[ -f "$AGENTS_DOCS/domain-model.md" ] && { echo "--- 领域模型 ---"; cat "$AGENTS_DOCS/domain-model.md"; echo ""; }
-
-if [ -d "$AGENTS_DOCS/services" ]; then
-  for f in "$AGENTS_DOCS/services/"*.md; do
-    [ -f "$f" ] && { echo "--- 服务文档: $(basename "$f" .md) ---"; cat "$f"; echo ""; }
-  done
+emit_file "$REPO_ROOT/AGENTS.md" "AGENTS.md 索引"
+emit_file "$AGENTS_DOCS/architecture.md" "架构设计"
+emit_file "$AGENTS_DOCS/conventions.md" "编码规范"
+emit_file "$AGENTS_DOCS/domain-model.md" "领域模型"
+if [ -n "$SERVICE" ]; then
+  emit_file "$AGENTS_DOCS/services/${SERVICE#service-}.md" "服务文档: $SERVICE"
 fi
-
-echo "=== 仓库上下文注入完毕 ==="
+echo "=== 仓库上下文注入完毕（$used/$MAX_CHARS chars） ==="

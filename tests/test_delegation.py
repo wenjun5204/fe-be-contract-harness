@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lib.delegation import (  # noqa: E402
+    allowed_subagents,
     consume_receipt,
     issue_receipt,
     load_policy,
@@ -43,6 +44,10 @@ def test_dynamic_codegen_subagents():
         "codegen/node-codegen", "codegen/java-codegen",
     ]
     assert resolve_subagents("5B", policy=policy, for_skip=True) == ["codegen/react-codegen"]
+
+    assert set(allowed_subagents("5A", policy)) == {"codegen/node-codegen", "codegen/java-codegen"}
+    assert set(allowed_subagents("5B", policy)) == {"codegen/react-codegen", "codegen/vue-codegen"}
+    assert allowed_subagents("2", policy) == ["contract/contract-designer"]
 
     receipt = issue_receipt("5A", ["codegen/node-codegen", "codegen/java-codegen"], "tok-multi")
     assert receipt_subagents(receipt) == ["codegen/node-codegen", "codegen/java-codegen"]
