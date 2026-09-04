@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from lib.contract.generator import generate, write_out  # noqa: E402
 from lib.contract.verify import verify  # noqa: E402
 from lib.contract.consistency import cross_stack_check, drift_check  # noqa: E402
+from lib.contract.live_check import live_check  # noqa: E402
 from lib.stack.adapter import available  # noqa: E402
 
 
@@ -48,6 +49,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     d.add_argument("--stack", required=True)
     d.add_argument("--gen-dir", required=True)
 
+    l = sub.add_parser("live", help="运行时契约校验(拉取服务导出的 OpenAPI 文档比对,抓序列化漂移)")
+    l.add_argument("contract")
+    l.add_argument("--url", required=True, help="运行时 OpenAPI 文档地址,如 http://127.0.0.1:8080/v3/api-docs")
+    l.add_argument("--timeout", type=float, default=10.0)
+    l.add_argument("--strict-required", action="store_true", help="严格比对 required(适合 DTO 标注了 required 的团队;默认运行时未声明 required 视为未知)")
+
     args = p.parse_args(argv)
 
     if args.cmd == "generate":
@@ -65,6 +72,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0 if result["ok"] else 1
     elif args.cmd == "drift":
         result = drift_check(args.contract, args.stack, args.gen_dir)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["ok"] else 1
+    elif args.cmd == "live":
+        result = live_check(args.contract, args.url, timeout=args.timeout,
+                            strict_required=args.strict_required)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["ok"] else 1
     else:

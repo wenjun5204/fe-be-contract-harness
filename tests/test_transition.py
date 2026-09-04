@@ -244,6 +244,113 @@ def test_fail_retry():
         assert read_state(sf)["stages"]["0"]["state"] == "running"
 
 
+def test_checkpoint_pending_outputs_merged():
+    """P0 修复:checkpoint_pending 后复跑 complete,不传 outputs/receipt 应复用已落盘数据。"""
+    with tempfile.TemporaryDirectory() as d:
+        sf = _setup(d)
+        start_stage(sf, "0")
+        r0 = issue_receipt("0", "orchestrator/init", "t0")
+        _reg(sf, r0)
+        complete_stage(sf, "0", outputs={"execution_plan": "plan"}, receipt=r0)
+        start_stage(sf, "1")
+        outputs1 = {"requirements_doc": "doc", "requirements_spec": _requirements_spec(),
+                    "requirements_quality_gate": "pass", "requirements_confirmation_status": "confirmed"}
+        r1 = issue_receipt("1", "orchestrator/requirements-analyst", "t1")
+        _reg(sf, r1)
+        # 进入 checkpoint_pending(产出已落盘)
+        res = complete_stage(sf, "1", outputs=outputs1, receipt=r1)
+        assert res["status"] == "checkpoint_pending", res
+        # 复跑:只给 decision,不给 outputs/receipt —— 应复用 pending 时保存的数据
+        res = complete_stage(sf, "1", checkpoint_decision="approve")
+        assert res["status"] == "completed", res
+        st = read_state(sf)["stages"]["1"]
+        assert st["outputs"] == outputs1, "pending 保存的 outputs 应被复用"
+        assert st["receipt"]["token"] == "t1"
+        # 复跑时新传入的 outputs 应覆盖同名键、保留其余
+        start_stage(sf, "2")
+        r2 = issue_receipt("2", "contract/contract-designer", "t2")
+        _reg(sf, r2)
+        res = complete_stage(sf, "2", outputs={"openapi_contract": "api/openapi.yaml"}, receipt=r2)
+        assert res["status"] == "checkpoint_pending", res
+        res = complete_stage(sf, "2", outputs={"openapi_contract": "api/openapi.v2.yaml"},
+                             checkpoint_decision="approve")
+        assert res["status"] == "completed", res
+        assert read_state(sf)["stages"]["2"]["outputs"]["openapi_contract"] == "api/openapi.v2.yaml"
+
+
+def test_error_message_not_duplicated():
+    """P0 修复:FSM 与 validate_dispatch 重复报缺失产出 → 去重后只报一次。"""
+    with tempfile.TemporaryDirectory() as d:
+        sf = _setup(d)
+        start_stage(sf, "0")
+        r0 = issue_receipt("0", "orchestrator/init", "t0")
+        _reg(sf, r0)
+        try:
+            complete_stage(sf, "0", outputs={}, receipt=r0)
+            assert False, "产出缺失应阻断"
+        except TransitionError as e:
+            assert str(e).count("缺少必需产出") == 1, f"错误信息重复: {e}"
+
+
+def test_evidence_structured_validation():
+    """P1: evidence 结构化校验 —— 缺 type / artifact 不存在 / 非零 exit_code 均阻断。"""
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        sub = root / "repo" / ".harness"
+        sub.mkdir(parents=True)
+        sf = sub / "state.json"
+        init_state(sf, "t")
+        (root / "repo" / "real.txt").write_text("x", encoding="utf-8")
+        start_stage(sf, "0")
+        r0 = issue_receipt("0", "orchestrator/init", "t0")
+        _reg(sf, r0)
+        outputs = {"execution_plan": "plan"}
+        # 缺 type
+        try:
+            complete_stage(sf, "0", outputs=outputs, receipt=r0, evidence=[{"detail": "no type"}])
+            assert False, "缺 type 应阻断"
+        except TransitionError as e:
+            assert "evidence[0] 缺少 type" in str(e), e
+        # artifact 不存在
+        try:
+            complete_stage(sf, "0", outputs=outputs, receipt=r0,
+                           evidence=[{"type": "build", "artifact_path": "no-such-file.txt"}])
+            assert False, "artifact 不存在应阻断"
+        except TransitionError as e:
+            assert "artifact_path 不存在" in str(e), e
+        # 非零 exit_code
+        try:
+            complete_stage(sf, "0", outputs=outputs, receipt=r0,
+                           evidence=[{"type": "test", "command": "mvn test", "exit_code": 1}])
+            assert False, "非零 exit_code 应阻断"
+        except TransitionError as e:
+            assert "非零退出码" in str(e), e
+        # 合法:真实 artifact(相对仓库根)+ 零退出码
+        res = complete_stage(sf, "0", outputs=outputs, receipt=r0,
+                             evidence=[{"type": "build", "command": "mvnw compile",
+                                        "exit_code": 0, "artifact_path": "real.txt"}])
+        assert res["status"] == "completed", res
+
+
+def test_subagent_mismatch_did_you_mean():
+    """P1: subagent 不匹配时报错附带 did-you-mean 候选。"""
+    from lib.delegation import validate_subagent_match
+    receipt = issue_receipt("6", "orchestrator/consistency-checker", "t")
+    reason = validate_subagent_match("6", receipt)
+    assert reason and "您是不是想用" in reason, reason
+    assert "contract/consistency-checker" in reason, reason
+
+
+def test_start_returns_discovery_info():
+    """P0: start 返回 allowed_subagents/required_outputs/checkpoint(前置告知)。"""
+    with tempfile.TemporaryDirectory() as d:
+        sf = _setup(d)
+        res = start_stage(sf, "0")
+        assert res["allowed_subagents"] == ["orchestrator/init"], res
+        assert "execution_plan" in res["required_outputs"], res
+        assert res["checkpoint"] in ("none", None), res
+
+
 def _requirements_spec() -> dict:
     """构造通过 Stage 1 SDD 门控的最小结构化需求 Spec。"""
     categories = [
@@ -277,7 +384,12 @@ def main():
     test_checkpoint_revise()
     test_skip_mandatory_requires_approval()
     test_fail_retry()
-    print("OK: transition 闭环自测通过(8 组断言)")
+    test_checkpoint_pending_outputs_merged()
+    test_error_message_not_duplicated()
+    test_evidence_structured_validation()
+    test_subagent_mismatch_did_you_mean()
+    test_start_returns_discovery_info()
+    print("OK: transition 闭环自测通过(13 组断言)")
 
 
 if __name__ == "__main__":

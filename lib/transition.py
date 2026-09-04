@@ -14,9 +14,11 @@
 - 确定性阶段(0/5A/5B/6/10)由 runner 签发 receipt(token=runner);LLM 阶段由子 Agent 回传 receipt。
 
 用法(CLI):
+    python3 lib/transition.py dispatch <state> <stage> --subagent <agent>          # 一键委派:签发+登记+start(receipt 自动落盘 receipts/)
     python3 lib/transition.py register <state> --receipt <json>           # 登记委派 receipt(防伪造)
     python3 lib/transition.py start <state> <stage>
     python3 lib/transition.py complete <state> <stage> --outputs <json> --receipt <json> [--checkpoint approve|skip] [--evidence <json>] [--auto]
+        # 大 JSON 建议用 --outputs-file/--receipt-file/--evidence-file 传文件路径,避免 shell 转义问题
     python3 lib/transition.py skip <state> <stage> --reason <text> --approved-by <who> [--receipt <json>] [--evidence <json>]
     python3 lib/transition.py fail <state> <stage> [--reason <text>]
     python3 lib/transition.py retry <state> <stage>
@@ -34,7 +36,13 @@ from typing import Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lib.checkpoint_manager import decide, requires_checkpoint
-from lib.delegation import consume_receipt, load_policy, validate_dispatch
+from lib.delegation import (
+    allowed_subagents,
+    consume_receipt,
+    load_policy,
+    validate_dispatch,
+    validate_subagent_match,
+)
 from lib.state_manager import read_state, write_state
 from lib.workflow_fsm import WorkflowFSM
 
@@ -58,6 +66,46 @@ def _stage_states(state: dict) -> Dict[str, str]:
 def _check_stage(state: dict, stage_id: str) -> None:
     if stage_id not in state["stages"]:
         raise TransitionError(f"unknown stage: {stage_id}")
+
+
+def _stage_discovery(stage_id: str) -> dict:
+    """阶段可发现性信息:允许的执行 Agent / 必需产出 / checkpoint 类型。
+    在 start 与 dispatch 时前置告知,避免执行者事后被 fail-closed 拦下。"""
+    fsm = WorkflowFSM()
+    return {
+        "allowed_subagents": allowed_subagents(stage_id),
+        "required_outputs": fsm.required_outputs(stage_id),
+        "checkpoint": fsm.checkpoint_type(stage_id),
+    }
+
+
+def _validate_evidence(evidence: List[dict], state_file: Path) -> List[str]:
+    """evidence 结构化校验(fail-closed 延伸到证据层):
+    - 每条必须有非空 type;
+    - artifact_path 若存在必须真实存在(相对路径以仓库根 = state 文件上两级为基准);
+    - exit_code 非零不能作为完成证据。
+    """
+    problems: List[str] = []
+    repo_root = Path(state_file).parent.parent  # 约定: state 位于 <repo>/.harness/state.json
+    for i, ev in enumerate(evidence):
+        if not isinstance(ev, dict) or not str(ev.get("type") or "").strip():
+            problems.append(
+                f"evidence[{i}] 缺少 type 字段"
+                "(结构化证据要求 {{type, detail 或 command, artifact_path?, exit_code?}})"
+            )
+            continue
+        artifact = ev.get("artifact_path")
+        if artifact:
+            p = Path(artifact)
+            if not p.is_absolute():
+                candidates = [repo_root / artifact, Path.cwd() / artifact]
+                p = next((c for c in candidates if c.exists()), candidates[0])
+            if not p.exists():
+                problems.append(f"evidence[{i}].artifact_path 不存在: {artifact}(以仓库根 {repo_root} 为基准)")
+        exit_code = ev.get("exit_code")
+        if exit_code is not None and exit_code != 0:
+            problems.append(f"evidence[{i}].exit_code={exit_code}(非零退出码不能作为完成证据)")
+    return problems
 
 
 def _check_prereqs(state_file: Path, stage_id: str) -> None:
@@ -85,7 +133,7 @@ def start_stage(state_file: Path | str, stage_id: str) -> dict:
     state["stages"][stage_id]["updated_at"] = _now()
     state["current_stage"] = stage_id
     write_state(sf, state)
-    return {"ok": True, "stage": stage_id, "state": nxt.value}
+    return {"ok": True, "stage": stage_id, "state": nxt.value, **_stage_discovery(stage_id)}
 
 
 def complete_stage(
@@ -114,8 +162,21 @@ def complete_stage(
     if current not in ("running", "checkpoint_pending"):
         raise TransitionError(f"阶段 {stage_id} 当前状态 {current} 不能 complete")
 
-    outputs = outputs or {}
-    evidence = evidence or []
+    # checkpoint_pending 复跑:合并已落盘的产出/receipt/evidence(修复:pending 时保存的数据被丢弃)
+    saved = state["stages"][stage_id]
+    if current == "checkpoint_pending":
+        if receipt is None:
+            receipt = saved.get("receipt")
+        merged = dict(saved.get("outputs") or {})
+        merged.update(outputs or {})
+        outputs = merged
+        if evidence:
+            evidence = list(saved.get("evidence") or []) + list(evidence)
+        else:
+            evidence = list(saved.get("evidence") or [])
+    else:
+        outputs = outputs or {}
+        evidence = list(evidence or [])
     problems: List[str] = []
 
     # 1. 前置就绪(幂等校验,start 时已查)
@@ -138,7 +199,11 @@ def complete_stage(
             if not dres["ok"]:
                 problems.extend(dres["reasons"])
 
+    # 3.5 evidence 结构化校验(证据层 fail-closed)
+    problems.extend(_validate_evidence(evidence, sf))
+
     if problems:
+        problems = list(dict.fromkeys(problems))  # 去重(FSM 与 validate_dispatch 会重复报缺失产出)
         raise TransitionError(f"阶段 {stage_id} 门控未通过: {'; '.join(problems)}", problems)
 
     # 4. checkpoint 门控
@@ -306,14 +371,35 @@ def _parse_json(s: str):
     return json.loads(s)
 
 
+def _load_json_opt(inline: Optional[str], file_path: Optional[str], name: str):
+    """优先读文件(--xx-file),其次内联(--xx)。大 JSON 走文件,避免 shell 引号转义灾难。"""
+    if file_path:
+        try:
+            return json.loads(Path(file_path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            raise TransitionError(f"{name} 文件读取/解析失败({file_path}): {e}")
+    return inline
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
     p = argparse.ArgumentParser(description="唯一状态迁移入口(门控闭环)")
     sub = p.add_subparsers(dest="cmd")
 
+    p_disp = sub.add_parser(
+        "dispatch",
+        help="一键委派:签发 receipt + 登记 + start(receipt 自动落盘 <state目录>/receipts/,并预校验角色匹配)",
+    )
+    p_disp.add_argument("state_file")
+    p_disp.add_argument("stage")
+    p_disp.add_argument("--subagent", required=True)
+    p_disp.add_argument("--token", default="catpaw-orchestrator", help="签发方标识")
+    p_disp.add_argument("--action", default="execute", choices=["execute", "skip"])
+
     p_reg = sub.add_parser("register", help="登记委派 receipt(防伪造,消费前必须登记)")
     p_reg.add_argument("state_file")
     p_reg.add_argument("--receipt", type=_parse_json, required=True)
+    p_reg.add_argument("--receipt-file")
 
     p_start = sub.add_parser("start", help="pending → running(校验前置)")
     p_start.add_argument("state_file")
@@ -323,9 +409,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_complete.add_argument("state_file")
     p_complete.add_argument("stage")
     p_complete.add_argument("--outputs", type=_parse_json, default=None)
+    p_complete.add_argument("--outputs-file")
     p_complete.add_argument("--receipt", type=_parse_json, default=None)
+    p_complete.add_argument("--receipt-file")
     p_complete.add_argument("--checkpoint", choices=["approve", "skip", "revise"], default=None)
     p_complete.add_argument("--evidence", type=_parse_json, default=None)
+    p_complete.add_argument("--evidence-file")
     p_complete.add_argument("--auto", action="store_true", help="自动批准 checkpoint(演示模式)")
 
     p_skip = sub.add_parser("skip", help="显式跳过(带批准)")
@@ -334,7 +423,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_skip.add_argument("--reason", required=True)
     p_skip.add_argument("--approved-by", required=True)
     p_skip.add_argument("--receipt", type=_parse_json, default=None)
+    p_skip.add_argument("--receipt-file")
     p_skip.add_argument("--evidence", type=_parse_json, default=None)
+    p_skip.add_argument("--evidence-file")
 
     p_fail = sub.add_parser("fail", help="running → failed")
     p_fail.add_argument("state_file")
@@ -350,24 +441,51 @@ def main(argv: Optional[List[str]] = None) -> int:
         p.print_help()
         return 1
     try:
-        if args.cmd == "register":
+        if args.cmd == "dispatch":
+            from lib.delegation import issue_receipt, register_receipt
+            sf = Path(args.state_file)
+            receipt = issue_receipt(args.stage, args.subagent, args.token, action=args.action)
+            # 预校验角色匹配:错误前置,附带 did-you-mean 提示
+            mismatch = validate_subagent_match(args.stage, receipt)
+            if mismatch:
+                raise TransitionError(mismatch, [mismatch])
+            receipts_dir = sf.parent / "receipts"
+            receipts_dir.mkdir(parents=True, exist_ok=True)
+            receipt_file = receipts_dir / f"receipt-{args.stage}.json"
+            receipt_file.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
+            register_receipt(sf, receipt)
+            start_res = start_stage(sf, args.stage)
+            res = {
+                "ok": True,
+                "stage": args.stage,
+                "receipt_file": str(receipt_file),
+                "registered": True,
+                "start": start_res,
+            }
+        elif args.cmd == "register":
             from lib.delegation import register_receipt
-            entry = register_receipt(args.state_file, args.receipt)
+            receipt = _load_json_opt(args.receipt, args.receipt_file, "--receipt")
+            if receipt is None:
+                raise TransitionError("register 需要 --receipt 或 --receipt-file")
+            entry = register_receipt(args.state_file, receipt)
             res = {"ok": True, "stage": entry["receipt"]["stage"], "registered": True}
         elif args.cmd == "start":
             res = start_stage(args.state_file, args.stage)
         elif args.cmd == "complete":
             res = complete_stage(
                 args.state_file, args.stage,
-                outputs=args.outputs, receipt=args.receipt,
-                checkpoint_decision=args.checkpoint, evidence=args.evidence,
+                outputs=_load_json_opt(args.outputs, args.outputs_file, "--outputs"),
+                receipt=_load_json_opt(args.receipt, args.receipt_file, "--receipt"),
+                checkpoint_decision=args.checkpoint,
+                evidence=_load_json_opt(args.evidence, args.evidence_file, "--evidence"),
                 auto_approve=args.auto,
             )
         elif args.cmd == "skip":
             res = skip_stage(
                 args.state_file, args.stage,
                 reason=args.reason, approved_by=args.approved_by,
-                receipt=args.receipt, evidence=args.evidence,
+                receipt=_load_json_opt(args.receipt, args.receipt_file, "--receipt"),
+                evidence=_load_json_opt(args.evidence, args.evidence_file, "--evidence"),
             )
         elif args.cmd == "fail":
             res = fail_stage(args.state_file, args.stage, reason=args.reason)
