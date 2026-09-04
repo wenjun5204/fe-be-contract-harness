@@ -71,7 +71,26 @@ def _inline_enums(live: dict) -> List[List[str]]:
     return enums
 
 
-def compare_contract_with_live(contract_model: dict, live: dict, strict_required: bool = False) -> dict:
+def _parse_ignored(ignored) -> set:
+    """解析忽略清单:'GET /api/ping' 或 '/api/ping'(不限 method)两种格式 → 归一化集合。"""
+    out = set()
+    for item in ignored or []:
+        item = str(item).strip()
+        if not item:
+            continue
+        if item.upper().startswith(("GET ", "POST ", "PUT ", "PATCH ", "DELETE ")):
+            out.add((item.split(" ", 1)[0].upper(), item.split(" ", 1)[1].strip()))
+        else:
+            out.add(("*", item))
+    return out
+
+
+def _is_ignored(method: str, path: str, ignored: set) -> bool:
+    return (method, path) in ignored or ("*", path) in ignored
+
+
+def compare_contract_with_live(contract_model: dict, live: dict, strict_required: bool = False,
+                               ignored_paths=None) -> dict:
     """纯函数比对:契约规范化模型 vs 运行时 OpenAPI 文档。返回 {"ok", "issues", 统计}。
 
     strict_required=False(默认):运行时未声明 required(如 springdoc 无 Bean Validation
@@ -80,6 +99,7 @@ def compare_contract_with_live(contract_model: dict, live: dict, strict_required
     """
     issues: List[str] = []
     inline_enums = _inline_enums(live)
+    ignored = _parse_ignored(ignored_paths)
 
     # 1/2. 路由与 operationId
     contract_eps = {(e["method"], e["path"]): e["operation_id"] for e in contract_model["endpoints"]}
@@ -87,6 +107,8 @@ def compare_contract_with_live(contract_model: dict, live: dict, strict_required
     for key in sorted(set(contract_eps) - set(live_eps)):
         issues.append(f"路由缺失: 运行时未实现 {key[0]} {key[1]}(契约 operationId={contract_eps[key]})")
     for key in sorted(set(live_eps) - set(contract_eps)):
+        if _is_ignored(key[0], key[1], ignored):
+            continue
         issues.append(f"路由多余: 运行时多出 {key[0]} {key[1]}(契约未定义)")
     for key in sorted(set(contract_eps) & set(live_eps)):
         c_opid, l_opid = contract_eps[key], live_eps[key]
@@ -136,10 +158,11 @@ def compare_contract_with_live(contract_model: dict, live: dict, strict_required
 
 
 def live_check(contract_path: str | Path, live_url: str, timeout: float = 10.0,
-              strict_required: bool = False) -> dict:
-    """入口:契约文件 + 运行时文档 URL → 比对结果。"""
+              strict_required: bool = False, ignored_paths=None) -> dict:
+    """入口:契约文件 + 运行时文档 URL → 比对结果。ignored_paths: 基础设施端点豁免(如 /api/ping)。"""
     model = parse_contract(contract_path)
     live = fetch_live_doc(live_url, timeout=timeout)
-    result = compare_contract_with_live(model, live, strict_required=strict_required)
+    result = compare_contract_with_live(model, live, strict_required=strict_required,
+                                        ignored_paths=ignored_paths)
     result["live_url"] = live_url
     return result

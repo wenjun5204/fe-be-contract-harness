@@ -136,6 +136,23 @@ def test_live_check_inline_enum_model():
         assert result["ok"], result["issues"]
 
 
+def test_live_check_ignored_infra_routes():
+    """基础设施端点豁免:'/api/ping' 不再报路由多余;'GET /api/x' 格式与 method 不匹配时不豁免。"""
+    model = parse_contract(EXAMPLE)
+    live = _live_doc_skeleton()
+    live["paths"]["/api/ping"] = {"get": {"operationId": "ping", "responses": {"200": {"description": "ok"}}}}
+    # 未豁免 → 报
+    result = compare_contract_with_live(model, live)
+    assert not result["ok"]
+    assert "路由多余: 运行时多出 GET /api/ping" in "\n".join(result["issues"])
+    # path 豁免(任意 method) → 不报
+    result = compare_contract_with_live(model, live, ignored_paths=["/api/ping"])
+    assert result["ok"], result["issues"]
+    # method+path 豁免但 method 不匹配 → 仍报
+    result = compare_contract_with_live(model, live, ignored_paths=["POST /api/ping"])
+    assert not result["ok"]
+
+
 def main():
     test_live_check_pass_when_consistent()
     test_live_check_catches_serialization_drift()
@@ -143,7 +160,8 @@ def main():
     test_live_check_nested_class_schema_alias()
     test_live_check_required_semantics()
     test_live_check_inline_enum_model()
-    print("OK: live_check 自测通过(6 组断言)")
+    test_live_check_ignored_infra_routes()
+    print("OK: live_check 自测通过(7 组断言)")
 
 
 if __name__ == "__main__":

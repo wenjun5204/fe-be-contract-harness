@@ -54,6 +54,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     l.add_argument("--url", required=True, help="运行时 OpenAPI 文档地址,如 http://127.0.0.1:8080/v3/api-docs")
     l.add_argument("--timeout", type=float, default=10.0)
     l.add_argument("--strict-required", action="store_true", help="严格比对 required(适合 DTO 标注了 required 的团队;默认运行时未声明 required 视为未知)")
+    l.add_argument("--ignore", default="/api/ping", help="忽略的契约外基础设施路由(逗号分隔,如 /api/ping,/actuator/health;支持 'GET /path' 指定 method;默认豁免探活端点 /api/ping)")
 
     args = p.parse_args(argv)
 
@@ -75,8 +76,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["ok"] else 1
     elif args.cmd == "live":
+        ignored = [s.strip() for s in args.ignore.split(",") if s.strip()]
         result = live_check(args.contract, args.url, timeout=args.timeout,
-                            strict_required=args.strict_required)
+                            strict_required=args.strict_required, ignored_paths=ignored)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["ok"] else 1
     else:
