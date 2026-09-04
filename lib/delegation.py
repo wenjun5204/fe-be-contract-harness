@@ -109,6 +109,15 @@ def validate_receipt(receipt: Optional[dict], stage_id: str) -> bool:
     )
 
 
+def suggest_subagents(actual: List[str], allowed: List[str]) -> List[str]:
+    """对不匹配的 Agent 名给出最接近的候选(did-you-mean,降低角色名不可发现的摩擦)。"""
+    import difflib
+    suggestions: List[str] = []
+    for name in actual:
+        suggestions.extend(difflib.get_close_matches(name, allowed, n=2, cutoff=0.4))
+    return list(dict.fromkeys(suggestions))
+
+
 def validate_subagent_match(stage_id: str, receipt: Optional[dict], policy: Optional[dict] = None) -> Optional[str]:
     """校验 receipt 中的实际 Agent 与阶段动作及策略匹配。"""
     policy = policy if policy is not None else load_policy()
@@ -124,7 +133,11 @@ def validate_subagent_match(stage_id: str, receipt: Optional[dict], policy: Opti
         allowed = _as_subagent_list(configured)
     unexpected = sorted(set(actual) - set(allowed))
     if unexpected:
-        return f"subagent 不匹配:阶段允许 {allowed},实际 {actual}"
+        hint = ""
+        close = suggest_subagents(sorted(set(actual)), allowed)
+        if close:
+            hint = f";您是不是想用: {', '.join(close)}"
+        return f"subagent 不匹配:阶段允许 {allowed},实际 {actual}{hint}"
     return None
 
 

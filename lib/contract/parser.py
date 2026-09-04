@@ -36,7 +36,12 @@ def load_contract(path: str | Path) -> dict:
         raise OpenAPIError(f"契约文件不存在: {p}")
     text = p.read_text(encoding="utf-8")
     if p.suffix.lower() in (".yaml", ".yml"):
-        import yaml
+        try:
+            import yaml
+        except ImportError as e:
+            raise OpenAPIError(
+                "缺少 pyyaml 依赖(YAML 契约解析需要):请执行 python3 -m pip install pyyaml"
+            ) from e
         data = yaml.safe_load(text)
     else:
         data = json.loads(text)
