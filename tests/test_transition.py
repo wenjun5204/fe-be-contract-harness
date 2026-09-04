@@ -351,6 +351,78 @@ def test_start_returns_discovery_info():
         assert res["checkpoint"] in ("none", None), res
 
 
+def test_deploy_result_structured_validation():
+    """P2: Stage 9 deploy_result 机验 —— 自由文本拒绝;ok=false/非 2xx/passed=false 阻断;合法结构通过。"""
+    import json as _json
+    with tempfile.TemporaryDirectory() as d:
+        sf = _setup(d)
+        # 快进:0-8 全部终态(skipped),9 可 start
+        state = _json.loads(sf.read_text(encoding="utf-8"))
+        for sid in ["0", "1", "2", "3", "4", "5A", "5B", "6", "7", "8"]:
+            state["stages"][sid]["state"] = "skipped"
+        sf.write_text(_json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        start_stage(sf, "9")
+        r9 = issue_receipt("9", "orchestrator/deployer", "t9")
+        _reg(sf, r9)
+        # 自由文本拒绝
+        try:
+            complete_stage(sf, "9", outputs={"deploy_result": "部署成功,一切正常"}, receipt=r9)
+            assert False, "自由文本 deploy_result 应阻断"
+        except TransitionError as e:
+            assert "必须是结构化对象" in str(e), e
+        # ok=false + 非 2xx + passed=false 阻断
+        bad = {
+            "environment": "http://127.0.0.1:8080", "ok": False,
+            "health_check": {"url": "/actuator/health", "status_code": 503},
+            "smoke_tests": [{"name": "login", "status_code": 500, "passed": False}],
+        }
+        try:
+            complete_stage(sf, "9", outputs={"deploy_result": bad}, receipt=r9)
+            assert False, "失败部署结果应阻断"
+        except TransitionError as e:
+            assert "ok=false" in str(e) and "非 2xx" in str(e) and "passed=false" in str(e), e
+        # 合法结构通过(checkpoint=artifact_review,用 auto)
+        good = {
+            "environment": "http://127.0.0.1:8080", "ok": True,
+            "health_check": {"url": "/actuator/health", "status_code": 200},
+            "smoke_tests": [{"name": "login", "status_code": 200, "passed": True}],
+        }
+        res = complete_stage(sf, "9", outputs={"deploy_result": good}, receipt=r9,
+                             auto_approve=True)
+        assert res["status"] == "completed", res
+
+
+def test_hint_navigation():
+    """P2: hint 下一步导航 —— 初始建议 dispatch 0;checkpoint_pending 建议确认;全终态提示结束。"""
+    import json as _json
+    from lib.transition import hint as hint_cmd
+    with tempfile.TemporaryDirectory() as d:
+        sf = _setup(d)
+        # 初始:建议 dispatch 阶段 0
+        h = hint_cmd(sf)
+        assert h["finished"] is False and h["progress"] == "0/12", h
+        first = h["suggestions"][0]
+        assert first["stage"] == "0" and "dispatch" in first["command"], h
+        assert first["allowed_subagents"] == ["orchestrator/init"]
+        # 快进到全部终态:提示流程结束
+        state = _json.loads(sf.read_text(encoding="utf-8"))
+        for sid in state["stages"]:
+            state["stages"][sid]["state"] = "completed"
+        sf.write_text(_json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        h = hint_cmd(sf)
+        assert h["finished"] is True and not h["suggestions"], h
+        assert h["message"] == "全部阶段已终态,流程结束"
+        # 快进到 1 checkpoint_pending:建议人工确认
+        state = _json.loads(sf.read_text(encoding="utf-8"))
+        for sid in state["stages"]:
+            state["stages"][sid]["state"] = "completed"
+        state["stages"]["1"]["state"] = "checkpoint_pending"
+        sf.write_text(_json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        h = hint_cmd(sf)
+        assert any(s["state"] == "checkpoint_pending" and "--checkpoint approve" in s["command"]
+                   for s in h["suggestions"]), h
+
+
 def _requirements_spec() -> dict:
     """构造通过 Stage 1 SDD 门控的最小结构化需求 Spec。"""
     categories = [
@@ -389,7 +461,9 @@ def main():
     test_evidence_structured_validation()
     test_subagent_mismatch_did_you_mean()
     test_start_returns_discovery_info()
-    print("OK: transition 闭环自测通过(13 组断言)")
+    test_deploy_result_structured_validation()
+    test_hint_navigation()
+    print("OK: transition 闭环自测通过(15 组断言)")
 
 
 if __name__ == "__main__":

@@ -112,21 +112,6 @@ def record_answers(spec: dict, answers: List[dict]) -> dict:
     return spec
 
 
-def add_confirmed_fact(spec: dict, fact: str, source: str = "user") -> dict:
-    spec["clarification"]["confirmed_facts"].append({"fact": fact, "source": source})
-    return spec
-
-
-def add_assumption(spec: dict, assumption: str) -> dict:
-    spec["clarification"]["assumptions"].append({"assumption": assumption, "accepted": False})
-    return spec
-
-
-def add_unresolved(spec: dict, question: str, category: str) -> dict:
-    spec["clarification"]["unresolved_questions"].append({"question": question, "category": category})
-    return spec
-
-
 def set_contract_readiness(spec: dict, entities: List[dict], error_codes: List[dict]) -> dict:
     """entities: [{name, fields: [{name, type, required, bounds}], states: []}]"""
     spec["contract_readiness"]["entities"] = entities
@@ -195,15 +180,12 @@ def validate_requirements_completion(state_data: dict) -> List[str]:
 
 def main(argv=None) -> int:
     import argparse
-    import sys
+    import pathlib
 
     p = argparse.ArgumentParser(description="结构化需求 Spec 校验")
     p.add_argument("spec_file")
     args = p.parse_args(argv)
 
-    spec = json.loads(Path(args.spec_file).read_text(encoding="utf-8")) if False else None
-    # 简化:直接读 spec 文件内容
-    import pathlib
     spec = json.loads(pathlib.Path(args.spec_file).read_text(encoding="utf-8"))
     errors = validate_requirements_completion({"requirements_spec": spec})
     print(json.dumps({"ok": not errors, "errors": errors}, ensure_ascii=False, indent=2))
@@ -212,5 +194,4 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     import sys
-    from pathlib import Path
     sys.exit(main())

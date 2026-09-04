@@ -15,6 +15,7 @@
 
 用法(CLI):
     python3 lib/transition.py dispatch <state> <stage> --subagent <agent>          # 一键委派:签发+登记+start(receipt 自动落盘 receipts/)
+    python3 lib/transition.py hint <state>                                        # 下一步导航:当前可推进阶段 + 建议命令
     python3 lib/transition.py register <state> --receipt <json>           # 登记委派 receipt(防伪造)
     python3 lib/transition.py start <state> <stage>
     python3 lib/transition.py complete <state> <stage> --outputs <json> --receipt <json> [--checkpoint approve|skip] [--evidence <json>] [--auto]
@@ -76,6 +77,111 @@ def _stage_discovery(stage_id: str) -> dict:
         "allowed_subagents": allowed_subagents(stage_id),
         "required_outputs": fsm.required_outputs(stage_id),
         "checkpoint": fsm.checkpoint_type(stage_id),
+    }
+
+
+def _validate_stage_output_semantics(stage_id: str, outputs: dict) -> List[str]:
+    """阶段专属产出语义校验(机验,拒绝自由文本自述)。
+
+    Stage 9(deploy):deploy_result 必须是结构化对象,健康检查/冒烟测试结果逐条机验:
+        {"environment": "http://...", "ok": true,
+         "health_check": {"url": "/actuator/health", "status_code": 200},
+         "smoke_tests": [{"name": "login", "status_code": 200, "passed": true}]}
+    """
+    problems: List[str] = []
+    if stage_id != "9":
+        return problems
+    dr = outputs.get("deploy_result")
+    if dr is None:
+        return problems  # 缺失由 FSM required_outputs 把关
+    if not isinstance(dr, dict):
+        problems.append(
+            "deploy_result 必须是结构化对象(含 environment/ok/health_check/smoke_tests),"
+            "不接受自由文本自述"
+        )
+        return problems
+    if dr.get("ok") is False:
+        problems.append("deploy_result.ok=false(部署自述失败,不能作为完成证据)")
+    hc = dr.get("health_check")
+    if isinstance(hc, dict):
+        code = hc.get("status_code")
+        if code is not None and not (200 <= code < 300):
+            problems.append(f"deploy_result.health_check.status_code={code}(非 2xx)")
+    for i, t in enumerate(dr.get("smoke_tests") or []):
+        if not isinstance(t, dict):
+            continue
+        code = t.get("status_code")
+        if code is not None and not (200 <= code < 300):
+            problems.append(
+                f"deploy_result.smoke_tests[{i}]({t.get('name', '?')}) status_code={code}(非 2xx)"
+            )
+        if t.get("passed") is False:
+            problems.append(f"deploy_result.smoke_tests[{i}]({t.get('name', '?')}) passed=false")
+    return problems
+
+
+def hint(state_file: Path | str) -> dict:
+    """下一步导航:读 state,返回可推进阶段 + 建议命令(只读,不迁移状态)。"""
+    sf = Path(state_file)
+    state = read_state(sf)
+    fsm = WorkflowFSM()
+    st = _stage_states(state)
+
+    in_flight, actionable, failed = [], [], []
+    for sid in fsm.stages():
+        s = st[sid]
+        if s == "failed":
+            failed.append(sid)
+        elif s in ("running", "checkpoint_pending"):
+            in_flight.append(sid)
+        elif s not in ("completed", "skipped"):
+            ok, _ = fsm.all_prereqs_completed(sid, st)
+            if ok:
+                actionable.append(sid)
+
+    suggestions: List[dict] = []
+    for sid in failed:
+        suggestions.append({
+            "stage": sid, "state": "failed",
+            "action": "retry",
+            "command": f"python3 lib/transition.py retry {sf} {sid}",
+        })
+    for sid in in_flight:
+        s = st[sid]
+        disc = _stage_discovery(sid)
+        if s == "checkpoint_pending":
+            suggestions.append({
+                "stage": sid, "state": s,
+                "action": "人工确认 checkpoint(approve/skip/revise),已落盘产出会自动复用",
+                "command": f"python3 lib/transition.py complete {sf} {sid} --checkpoint approve",
+            })
+        else:
+            suggestions.append({
+                "stage": sid, "state": s,
+                "action": "完成阶段(产出满足 required_outputs 时)",
+                "required_outputs": disc["required_outputs"],
+                "command": f"python3 lib/transition.py complete {sf} {sid} --outputs-file <f> --receipt-file <f>",
+            })
+    for sid in actionable:
+        disc = _stage_discovery(sid)
+        first_agent = disc["allowed_subagents"][0] if disc["allowed_subagents"] else "<agent>"
+        suggestions.append({
+            "stage": sid, "state": "pending",
+            "action": "委派执行(dispatch 一键:签发+登记+start)",
+            "allowed_subagents": disc["allowed_subagents"],
+            "required_outputs": disc["required_outputs"],
+            "checkpoint": disc["checkpoint"],
+            "command": f"python3 lib/transition.py dispatch {sf} {sid} --subagent {first_agent}",
+        })
+
+    done = sum(1 for s in st.values() if s in ("completed", "skipped"))
+    return {
+        "ok": True,
+        "change_id": state.get("change_id"),
+        "progress": f"{done}/{len(st)}",
+        "suggestions": suggestions,
+        "finished": not suggestions,
+        "message": "全部阶段已终态,流程结束" if not suggestions else None,
     }
 
 
@@ -201,6 +307,9 @@ def complete_stage(
 
     # 3.5 evidence 结构化校验(证据层 fail-closed)
     problems.extend(_validate_evidence(evidence, sf))
+
+    # 3.6 阶段专属产出语义校验(如 Stage 9 deploy_result 机验)
+    problems.extend(_validate_stage_output_semantics(stage_id, outputs))
 
     if problems:
         problems = list(dict.fromkeys(problems))  # 去重(FSM 与 validate_dispatch 会重复报缺失产出)
@@ -396,6 +505,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_disp.add_argument("--token", default="catpaw-orchestrator", help="签发方标识")
     p_disp.add_argument("--action", default="execute", choices=["execute", "skip"])
 
+    p_hint = sub.add_parser("hint", help="下一步导航:当前可推进阶段 + 建议命令(只读)")
+    p_hint.add_argument("state_file")
+
     p_reg = sub.add_parser("register", help="登记委派 receipt(防伪造,消费前必须登记)")
     p_reg.add_argument("state_file")
     p_reg.add_argument("--receipt", type=_parse_json, required=True)
@@ -462,6 +574,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "registered": True,
                 "start": start_res,
             }
+        elif args.cmd == "hint":
+            res = hint(args.state_file)
         elif args.cmd == "register":
             from lib.delegation import register_receipt
             receipt = _load_json_opt(args.receipt, args.receipt_file, "--receipt")

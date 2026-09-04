@@ -23,7 +23,7 @@ allowed-tools: Read, Write, Bash, TodoWrite
 | 2 | 接口契约设计 | contract-designer 产出 openapi.yaml 🔴 | `contract/contract-designer` |
 | 3 | 仓库识别与技术方案 | services-analyst 🔴 | `orchestrator/services-analyst` |
 | 4 | 分支管理 | git-client | `orchestrator/git-client` |
-| 5A/5B | 后端/前端实现(并行) | codegen | java: `codegen/java-codegen`,node: `codegen/node-codegen`,react: `codegen/react-codegen`,vue: `codegen/vue-codegen` |
+| 5A/5B | 后端/前端实现(DAG 上逻辑并行,执行一律串行) | codegen | java: `codegen/java-codegen`,node: `codegen/node-codegen`,react: `codegen/react-codegen`,vue: `codegen/vue-codegen` |
 | 6 | 一致性校验 | consistency-checker 🔴 | `contract/consistency-checker` |
 | 7 | 提交PR | code-review | `quality/code-review` |
 | 8 | 测试用例 | test-case-generator | `quality/test-case-generator` |
@@ -32,6 +32,12 @@ allowed-tools: Read, Write, Bash, TodoWrite
 
 > 🔴 = mandatory_review(强制人工确认)
 > 角色名与 config/delegation-policy.json 一一对应;`start`/`dispatch` 会返回各阶段 allowed_subagents,不匹配时报错附带 did-you-mean 候选。
+>
+> **执行模型(MVP:串行)**:DAG 中的并行分支(5A/5B、7/8)仅表示前置关系上可同时 actionable,
+> 实际执行一律串行推进(先 5A 后 5B,先 7 后 8)。原因:共享 git working tree 避免写冲突、
+> 后阶段可吃到前阶段真实产出、checkpoint 人工交互保持单一活跃阶段。任意时刻拿不准下一步,
+> 跑 `python3 lib/transition.py hint <state>` 获取导航。未来如需真并行,需将 current_stage
+> 单值改为 active_stages 集合并限定仅目录不相交的阶段对开放(5A/5B),7/8 永远串行。
 
 ## 核心命令(确定性内核)
 
@@ -50,6 +56,7 @@ bash lib/scripts/demo-end-to-end.sh                                            #
 ```
 
 > evidence 结构化约定:每条必须有 `type`;可选 `command`/`exit_code`(非零阻断)/`artifact_path`(必须真实存在,相对仓库根)。
+> Stage 9 的 `deploy_result` 必须是结构化对象(不接受自由文本):`{"environment", "ok", "health_check": {"status_code"}, "smoke_tests": [{"name", "status_code", "passed"}]}`,非 2xx / ok=false / passed=false 均阻断。
 
 ## 核心约束
 
