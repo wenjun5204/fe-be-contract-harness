@@ -33,6 +33,9 @@ allowed-tools: Read, Write, Bash, TodoWrite
 > 🔴 = mandatory_review(强制人工确认)
 > 角色名与 config/delegation-policy.json 一一对应;`start`/`dispatch` 会返回各阶段 allowed_subagents,不匹配时报错附带 did-you-mean 候选。
 >
+> **Stage 1 前置建议**：若需求还停留在创意/PRD 阶段，先用 `skills/prd-optimizer`（心理引擎选型、传播链路、合规自检）
+> 把 PRD 打磨定稿，再进入本工作流；定稿 PRD 是 requirements-analyst 结构化为 requirements_spec 的输入。
+>
 > **执行模型(MVP:串行)**:DAG 中的并行分支(5A/5B、7/8)仅表示前置关系上可同时 actionable,
 > 实际执行一律串行推进(先 5A 后 5B,先 7 后 8)。原因:共享 git working tree 避免写冲突、
 > 后阶段可吃到前阶段真实产出、checkpoint 人工交互保持单一活跃阶段。任意时刻拿不准下一步,
