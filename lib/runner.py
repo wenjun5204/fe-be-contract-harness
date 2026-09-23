@@ -9,9 +9,12 @@ checkpoint + evidence 全门控)。runner 不再直接写 state.json。
 - --auto 演示模式:LLM 阶段显式带批准跳过(record skip),checkpoint 自动 approve
 - 非 auto 模式:checkpoint 阶段停在 checkpoint_pending;前置未就绪的推进会被
   transition 真实阻断(不可绕过的体现)
+- --live 模式:LLM 阶段经 tool calling 主循环真实执行(lib/llm_dispatch),
+  运行时可选 openai(OpenAI 兼容网关)或 mock(脚本驱动,演示/测试)
 
 用法:
     python3 lib/runner.py run <contract> --out <dir> [--state <state.json>] [--stacks react,vue,node,java] [--auto]
+    python3 lib/runner.py run <contract> --out gen --live --llm-runtime mock --llm-script script.json --auto
     python3 lib/runner.py status [--state <state.json>]
 """
 from __future__ import annotations
@@ -114,6 +117,56 @@ def _start_then_complete(state_file: Path, stage: str, **kwargs) -> dict:
     return complete_stage(state_file, stage, **kwargs)
 
 
+def _build_stage_client(llm_runtime: str, llm_script: Optional[str | Path], stage: str):
+    """为某个 LLM 阶段构造运行时客户端。mock 脚本支持 {"stages": {<stage>: [...]}} 分阶段。"""
+    if llm_runtime == "openai":
+        from lib.llm_client import OpenAICompatClient
+        return OpenAICompatClient()
+    if llm_runtime == "mock":
+        from lib.llm_client import MockLLMClient
+        if not llm_script:
+            raise ValueError("--live --llm-runtime mock 需要 --llm-script(JSON 脚本)")
+        data = json.loads(Path(llm_script).read_text(encoding="utf-8"))
+        steps = data.get("stages", {}).get(stage) if isinstance(data, dict) else data
+        if steps is None:
+            raise ValueError(f"mock 脚本缺少阶段 {stage} 的步骤(stages.{stage})")
+        return MockLLMClient(steps)
+    raise ValueError(f"未知 llm-runtime: {llm_runtime}(可选 mock / openai)")
+
+
+def _run_llm_stage(
+    state_file: Path,
+    sid: str,
+    policy: dict,
+    contract: Path,
+    entities: List[str],
+    repo: Optional[str | Path],
+    context_max_tokens: int,
+    *,
+    live: bool,
+    llm_runtime: str,
+    llm_script: Optional[str | Path],
+    llm_max_turns: int,
+    auto: bool,
+    events: List[dict],
+) -> None:
+    """LLM 阶段统一入口:默认仅签发 directive;--live 时经 tool calling 循环真实执行。"""
+    directive = _directive(sid, policy, str(contract), entities, repo, context_max_tokens)
+    if not live:
+        events.append({"stage": sid, "kind": "agent", "detail": directive})
+        return
+    from lib.llm_dispatch import run_llm_stage
+    res = run_llm_stage(
+        directive, state_file,
+        client=_build_stage_client(llm_runtime, llm_script, sid),
+        contract_path=contract,
+        workdir=repo or Path.cwd(),
+        max_turns=llm_max_turns,
+        auto_approve=auto,
+    )
+    events.append({"stage": sid, "kind": "llm", "detail": res})
+
+
 def run(
     contract: str | Path,
     out_dir: str | Path,
@@ -122,6 +175,10 @@ def run(
     auto: bool = False,
     repo: Optional[str | Path] = None,
     context_max_tokens: int = 4000,
+    live: bool = False,
+    llm_runtime: str = "mock",
+    llm_script: Optional[str | Path] = None,
+    llm_max_turns: int = 12,
 ) -> dict:
     contract = Path(contract)
     state_file = Path(state_file)
@@ -152,7 +209,7 @@ def run(
 
     # ---- Stage 1/2/3/4: 契约已提供 → LLM 阶段 ----
     for sid in ("1", "2", "3", "4"):
-        if auto:
+        if auto and not live:
             sub, reason = SKIP_STAGES[sid]
             _try_transition(
                 state_file,
@@ -166,7 +223,11 @@ def run(
                 events, sid, "skip", reason,
             )
         else:
-            record(sid, "agent", _directive(sid, policy, str(contract), entities, repo, context_max_tokens))
+            _run_llm_stage(
+                state_file, sid, policy, contract, entities, repo, context_max_tokens,
+                live=live, llm_runtime=llm_runtime, llm_script=llm_script,
+                llm_max_turns=llm_max_turns, auto=auto, events=events,
+            )
 
     # ---- Stage 5A/5B: codegen(确定性) ----
     backend = [s for s in stacks if s in ("node", "java")]
@@ -227,7 +288,7 @@ def run(
 
     # ---- Stage 7/8/9: LLM 阶段 ----
     for sid in ("7", "8", "9"):
-        if auto:
+        if auto and not live:
             sub, reason = SKIP_STAGES[sid]
             _try_transition(
                 state_file,
@@ -240,7 +301,11 @@ def run(
                 events, sid, "skip", reason,
             )
         else:
-            record(sid, "agent", _directive(sid, policy, str(contract), entities, repo, context_max_tokens))
+            _run_llm_stage(
+                state_file, sid, policy, contract, entities, repo, context_max_tokens,
+                live=live, llm_runtime=llm_runtime, llm_script=llm_script,
+                llm_max_turns=llm_max_turns, auto=auto, events=events,
+            )
 
     # ---- Stage 10: 交付报告(确定性) ----
     _try_transition(
@@ -278,6 +343,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     r.add_argument("--auto", action="store_true", help="演示自动模式(LLM 阶段显式跳过 + checkpoint 自动批准)")
     r.add_argument("--repo", default=None, help="目标仓库路径；用于向 LLM 阶段注入相关仓库知识")
     r.add_argument("--context-max-tokens", type=int, default=4000, help="单次委派的知识上下文 token 预算")
+    r.add_argument("--live", action="store_true", help="LLM 阶段真实执行(tool calling 主循环,而非仅签发 directive)")
+    r.add_argument("--llm-runtime", default="mock", choices=["mock", "openai"], help="LLM 运行时:mock=脚本驱动,openai=OpenAI 兼容网关")
+    r.add_argument("--llm-script", default=None, help="mock 运行时脚本(JSON,支持 stages.<stage> 分阶段步骤数组)")
+    r.add_argument("--llm-max-turns", type=int, default=12, help="单阶段 tool calling 最大轮次")
 
     s = sub.add_parser("status", help="查看状态")
     s.add_argument("--state", default="state.json")
@@ -286,7 +355,12 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.cmd == "run":
         stacks = [x.strip() for x in args.stacks.split(",") if x.strip()]
-        result = run(args.contract, args.out, args.state, stacks, auto=args.auto, repo=args.repo, context_max_tokens=args.context_max_tokens)
+        result = run(
+            args.contract, args.out, args.state, stacks, auto=args.auto, repo=args.repo,
+            context_max_tokens=args.context_max_tokens, live=args.live,
+            llm_runtime=args.llm_runtime, llm_script=args.llm_script,
+            llm_max_turns=args.llm_max_turns,
+        )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     elif args.cmd == "status":
