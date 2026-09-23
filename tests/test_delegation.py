@@ -123,3 +123,20 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def test_register_rejects_wrong_stage_subagent():
+    """register 入口即校验 subagent 匹配:错误阶段的 Agent 在登记时被拒(带纠错提示),
+    而不是等 complete 时(整段工作做完后)才拒绝。"""
+    with tempfile.TemporaryDirectory() as d:
+        sf = Path(d) / "state.json"
+        init_state(sf, "deleg-mismatch")
+        bad = issue_receipt("10", "orchestrator/deployer", "tok-10")  # 阶段10应为 orchestrator/notifier
+        try:
+            register_receipt(sf, bad)
+            assert False, "应抛 ValueError"
+        except ValueError as e:
+            assert "subagent 不匹配" in str(e), e
+        # 正确 subagent 仍可正常登记
+        good = issue_receipt("10", "orchestrator/notifier", "tok-10")
+        register_receipt(sf, good)

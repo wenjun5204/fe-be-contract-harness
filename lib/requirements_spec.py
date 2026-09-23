@@ -151,6 +151,11 @@ def validate_requirements_completion(state_data: dict) -> List[str]:
     spec = state_data.get("requirements_spec")
     if not spec:
         return ["requirements_spec 缺失(未产出结构化需求 Spec)"]
+    if not isinstance(spec, dict):
+        return [
+            "requirements_spec 必须是内嵌的结构化 Spec 对象(完整 JSON),"
+            "不能是文件路径字符串——完整对象随 outputs 落盘 state,才能被 FSM 机验"
+        ]
 
     errors: List[str] = []
     if not spec.get("scope", {}).get("complexity"):

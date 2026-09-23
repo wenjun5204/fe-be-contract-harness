@@ -162,6 +162,11 @@ def register_receipt(state_file: str | Path, receipt: dict) -> dict:
     """把签发后的 receipt 登记到 state 的 receipts 表(幂等:同 stage+token 重复登记覆盖)。"""
     if not validate_receipt(receipt, receipt.get("stage", "")):
         raise ValueError(f"receipt 无效: {receipt}")
+    # 尽早校验 subagent 匹配:与其在 complete 时(整段工作做完后)才拒绝,
+    # 不如在登记入口就拦住错误阶段的 Agent,给出同样含纠错提示的错误
+    mismatch = validate_subagent_match(receipt.get("stage", ""), receipt)
+    if mismatch:
+        raise ValueError(f"receipt 被拒绝: {mismatch}")
     state = _load_state(state_file)
     stage = receipt["stage"]
     state.setdefault("receipts", {})

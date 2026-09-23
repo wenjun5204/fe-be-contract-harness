@@ -78,3 +78,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def test_string_path_spec_rejected_with_clear_error():
+    """requirements_spec 传文件路径字符串时给出明确门控错误,而不是 AttributeError 崩栈。"""
+    errors = validate_requirements_completion({"requirements_spec": "docs/requirements/spec.json"})
+    assert len(errors) == 1
+    assert "结构化 Spec 对象" in errors[0] and "文件路径" in errors[0], errors
