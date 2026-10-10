@@ -19,9 +19,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - name: 安装依赖
-        run: |
-          pip install pyyaml
-          pip install pytest
+        run: pip install -r requirements.txt
       - name: 校验 + 全量自测
         run: npm test
       - name: pytest 收集(结构化测试层)
