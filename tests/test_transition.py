@@ -3,7 +3,6 @@
 
 运行:python3 tests/test_transition.py
 """
-import json
 import sys
 import tempfile
 from pathlib import Path
@@ -395,6 +394,7 @@ def test_deploy_result_structured_validation():
 def test_hint_navigation():
     """P2: hint 下一步导航 —— 初始建议 dispatch 0;checkpoint_pending 建议确认;全终态提示结束。"""
     import json as _json
+
     from lib.transition import hint as hint_cmd
     with tempfile.TemporaryDirectory() as d:
         sf = _setup(d)

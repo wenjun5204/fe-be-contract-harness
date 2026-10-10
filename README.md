@@ -1,12 +1,36 @@
 # fe-be-contract-harness
 
+**[English](#english) | [中文](#它解决什么问题)**
+
 一个面向前后端协作的**契约驱动 SDLC Harness**。它以 OpenAPI 3.x 为前后端接口的唯一事实源（SSOT），把需求、契约、代码生成、质量校验、人工确认和交付串成一条可验证、可恢复的工作流。
 
 > 当前最适合的使用方式：把它当作“确定性流程内核 + Agent 协作协议”。
 > - 确定性部分可以本地直接运行、测试和校验；
 > - LLM 阶段默认生成带 receipt 和知识上下文的 dispatch directive；
 > - `--live` 模式可经 tool calling 主循环真实执行 LLM 阶段（mock / openai 两种运行时）；
-> - 真正由 CatPaw / Claude Code / OpenClaw 等平台启动 Agent、回传结果的适配仍需按目标平台验证。
+> - 真正由 Claude Code / OpenClaw 等支持 subagent 的平台启动 Agent、回传结果的适配仍需按目标平台验证。
+
+---
+
+## English
+
+**fe-be-contract-harness** is a contract-driven SDLC harness for frontend–backend collaboration. It treats an OpenAPI 3.x spec as the single source of truth (SSOT) for API contracts, and chains requirements, contract design, code generation, quality gates, human checkpoints, and delivery into one verifiable, resumable workflow.
+
+The best way to use it today: a **deterministic process kernel + agent collaboration protocol**.
+
+- The deterministic core (parsing, 4-stack codegen, consistency checks, drift detection, FSM state machine, receipts, checkpoints, coverage gates) runs and tests locally — no LLM required.
+- LLM stages emit dispatch directives with receipts and knowledge context by default; with `--live`, they actually execute via a tool-calling loop (mock or OpenAI-compatible runtimes), still going through the same transition gates with no bypass.
+- Adapting the "launch agent → return StageResult → call transition" loop to a real platform (Claude Code, OpenClaw, etc.) is the remaining integration work.
+
+Quick start:
+
+```bash
+pip install -r requirements.txt
+npm run demo          # end-to-end demo in a temp dir
+npm test              # full deterministic smoke tests
+```
+
+See the Chinese sections below for the complete documentation (workflow, commands, knowledge bases, gates, and current boundaries).
 
 ---
 
@@ -146,7 +170,7 @@ runner 为 LLM 阶段签发任务时，附带的 `dispatch-context/v1`。它会�
 
 ### 前置依赖
 
-- Python 3.8+；
+- Python 3.10+（CI 在 3.10 / 3.11 / 3.12 上验证）；
 - Python 依赖见 `requirements.txt`（`pyyaml` 解析 YAML OpenAPI，`pytest` 跑结构化测试层），`pip install -r requirements.txt`；
 - Node.js 18+（用于 `npm` 脚本；生成核心本身主要依赖 Python）。
 
@@ -519,6 +543,6 @@ fe-be-contract-harness/
 - ✅ 领域知识与仓库知识可被校验，并可以自动进入 LLM dispatch context；
 - ✅ 非自动 runner 不会把 LLM 阶段伪装成已完成；
 - ✅ `--live` 模式下 LLM 阶段可经 tool calling 主循环真实执行（mock / openai 运行时），全程走 transition 门控、无旁路；
-- ⚠️ 真正接入 CatPaw / Claude Code / OpenClaw 等平台的“启动 Agent → 回传 StageResult → 调用 transition”适配仍需按目标运行时验证；
+- ⚠️ 真正接入 Claude Code / OpenClaw 等支持 subagent 的平台的“启动 Agent → 回传 StageResult → 调用 transition”适配仍需按目标运行时验证；
 - ⚠️ `workflow-dag.json` 定义了并行分支关系；通用 `parallel_wave_scheduler` 已可用，但 runner 当前仍以顺序循环调度确定性分支；
 - ⚠️ `--auto` 仅用于本地演示和测试，不应替代真实人工审批与部署。

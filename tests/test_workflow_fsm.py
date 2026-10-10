@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lib.workflow_fsm import WorkflowFSM, StageState  # noqa: E402
+from lib.workflow_fsm import StageState, WorkflowFSM  # noqa: E402
 
 
 def test_transitions():

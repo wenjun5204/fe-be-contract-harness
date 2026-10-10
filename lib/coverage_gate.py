@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "coverage-config.json"
 

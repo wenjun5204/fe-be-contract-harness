@@ -24,16 +24,16 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 # 使 `python3 lib/runner.py` 直接执行时也能 import lib.* 包
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from lib.context_orchestrator import build_dispatch_context  # noqa: E402
 from lib.contract.consistency import cross_stack_check  # noqa: E402
 from lib.contract.generator import write_out  # noqa: E402
 from lib.contract.parser import parse_contract  # noqa: E402
 from lib.contract.verify import verify  # noqa: E402
-from lib.context_orchestrator import build_dispatch_context  # noqa: E402
 from lib.delegation import issue_receipt, load_policy, resolve_subagents  # noqa: E402
 from lib.state_manager import actionable_stages, init_state, summary  # noqa: E402
 from lib.transition import TransitionError, complete_stage, skip_stage, start_stage  # noqa: E402

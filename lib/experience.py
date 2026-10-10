@@ -60,10 +60,10 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="经验沉淀")
     sub = p.add_subparsers(dest="cmd")
 
-    l = sub.add_parser("log", help="追加经验")
-    l.add_argument("category")
-    l.add_argument("content")
-    l.add_argument("--source", default="")
+    log_p = sub.add_parser("log", help="追加经验")
+    log_p.add_argument("category")
+    log_p.add_argument("content")
+    log_p.add_argument("--source", default="")
 
     q = sub.add_parser("query", help="检索经验")
     q.add_argument("keyword")

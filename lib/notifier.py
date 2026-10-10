@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable, Optional, Union
+from typing import Callable, Union
 
 Sink = Union[str, Callable[[str, str, str], None]]
 

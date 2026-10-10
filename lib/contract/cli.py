@@ -18,10 +18,10 @@ from typing import List, Optional
 # 使 `python3 lib/contract/cli.py` 直接执行时也能 import lib.* 包
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from lib.contract.generator import generate, write_out  # noqa: E402
-from lib.contract.verify import verify  # noqa: E402
 from lib.contract.consistency import cross_stack_check, drift_check  # noqa: E402
+from lib.contract.generator import write_out  # noqa: E402
 from lib.contract.live_check import live_check  # noqa: E402
+from lib.contract.verify import verify  # noqa: E402
 from lib.stack.adapter import available  # noqa: E402
 
 
@@ -49,12 +49,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     d.add_argument("--stack", required=True)
     d.add_argument("--gen-dir", required=True)
 
-    l = sub.add_parser("live", help="运行时契约校验(拉取服务导出的 OpenAPI 文档比对,抓序列化漂移)")
-    l.add_argument("contract")
-    l.add_argument("--url", required=True, help="运行时 OpenAPI 文档地址,如 http://127.0.0.1:8080/v3/api-docs")
-    l.add_argument("--timeout", type=float, default=10.0)
-    l.add_argument("--strict-required", action="store_true", help="严格比对 required(适合 DTO 标注了 required 的团队;默认运行时未声明 required 视为未知)")
-    l.add_argument("--ignore", default="/api/ping", help="忽略的契约外基础设施路由(逗号分隔,如 /api/ping,/actuator/health;支持 'GET /path' 指定 method;默认豁免探活端点 /api/ping)")
+    live_p = sub.add_parser("live", help="运行时契约校验(拉取服务导出的 OpenAPI 文档比对,抓序列化漂移)")
+    live_p.add_argument("contract")
+    live_p.add_argument("--url", required=True, help="运行时 OpenAPI 文档地址,如 http://127.0.0.1:8080/v3/api-docs")
+    live_p.add_argument("--timeout", type=float, default=10.0)
+    live_p.add_argument("--strict-required", action="store_true", help="严格比对 required(适合 DTO 标注了 required 的团队;默认运行时未声明 required 视为未知)")
+    live_p.add_argument("--ignore", default="/api/ping", help="忽略的契约外基础设施路由(逗号分隔,如 /api/ping,/actuator/health;支持 'GET /path' 指定 method;默认豁免探活端点 /api/ping)")
 
     args = p.parse_args(argv)
 

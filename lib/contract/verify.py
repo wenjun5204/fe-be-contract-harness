@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict
 
 from lib.contract.parser import parse_contract
 from lib.stack.adapter import get_adapter

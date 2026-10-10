@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 import subprocess
-from typing import Dict, Optional
+from typing import Optional
 
 
 def parse_line_coverage(output: str) -> Optional[float]:

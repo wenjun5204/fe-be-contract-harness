@@ -13,7 +13,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import List
 
 EXCLUDE_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", "target"}
 EXCLUDE_SUFFIXES = {".lock", ".pyc", ".map", ".min.js", ".sum"}

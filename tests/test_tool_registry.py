@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Tool Registry 自测。运行:python3 tests/test_tool_registry.py"""
-import os
 import sys
 import tempfile
 from pathlib import Path

@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lib.context_orchestrator import build_dispatch_context, budget_context, orchestrate, select_sections  # noqa: E402
+from lib.context_orchestrator import budget_context, build_dispatch_context, orchestrate, select_sections  # noqa: E402
 
 
 def test_select_sections():

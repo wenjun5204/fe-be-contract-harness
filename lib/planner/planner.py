@@ -45,7 +45,6 @@ def plan(inputs: Optional[dict] = None) -> dict:
 def main(argv=None) -> int:
     import argparse
     import json
-    import sys
 
     p = argparse.ArgumentParser(description="确定性路径规划")
     p.add_argument("--has-contract", action="store_true")

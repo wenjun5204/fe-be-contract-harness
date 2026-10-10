@@ -12,9 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.llm_client import (  # noqa: E402
     LLMError,
     MockLLMClient,
+    OpenAICompatClient,
     normalize_mock_step,
     normalize_openai_message,
-    OpenAICompatClient,
 )
 
 
