@@ -4,7 +4,8 @@
 
 > 当前最适合的使用方式：把它当作“确定性流程内核 + Agent 协作协议”。
 > - 确定性部分可以本地直接运行、测试和校验；
-> - LLM 阶段会生成带 receipt 和知识上下文的 dispatch directive；
+> - LLM 阶段默认生成带 receipt 和知识上下文的 dispatch directive；
+> - `--live` 模式可经 tool calling 主循环真实执行 LLM 阶段（mock / openai 两种运行时）；
 > - 真正由 CatPaw / Claude Code / OpenClaw 等平台启动 Agent、回传结果的适配仍需按目标平台验证。
 
 ---
@@ -136,6 +137,7 @@ runner 为 LLM 阶段签发任务时，附带的 `dispatch-context/v1`。它会�
 |---|---|---|
 | 确定性执行 | 0、5A、5B、6、10 | 本地执行或生成，并通过 `transition` 进入终态 |
 | LLM 委派 | 1、2、3、4、7、8、9 | 非 `--auto` 时只生成 dispatch directive，不会伪造完成 |
+| 真实执行 | `--live` | LLM 阶段经 tool calling 主循环真实执行（`lib/llm_dispatch`），运行时可选 `mock`（脚本驱动）或 `openai`（OpenAI 兼容网关）；未产出 required_outputs 时停在 running，不伪造完成 |
 | 演示自动模式 | `--auto` | 对 LLM 阶段记录带批准的 skip；自动批准 checkpoint，用于本地完整演示 |
 
 ---
@@ -145,7 +147,7 @@ runner 为 LLM 阶段签发任务时，附带的 `dispatch-context/v1`。它会�
 ### 前置依赖
 
 - Python 3.8+；
-- `pyyaml`（解析 YAML OpenAPI）；
+- Python 依赖见 `requirements.txt`（`pyyaml` 解析 YAML OpenAPI，`pytest` 跑结构化测试层），`pip install -r requirements.txt`；
 - Node.js 18+（用于 `npm` 脚本；生成核心本身主要依赖 Python）。
 
 ### 1. 运行完整演示
@@ -207,6 +209,27 @@ python3 lib/runner.py run examples/petstore.yaml \
 python3 lib/runner.py status --state state.json
 ```
 
+`--live` 真实执行 LLM 阶段（tool calling 主循环，无旁路门控）：
+
+```bash
+# mock 运行时：脚本驱动，本地可完整演示与测试
+python3 lib/runner.py run examples/petstore.yaml \
+  --out gen \
+  --state state.json \
+  --stacks node,react \
+  --live --llm-runtime mock \
+  --llm-script script.json
+
+# openai 运行时：OpenAI 兼容网关，读 OPENAI_BASE_URL / OPENAI_API_KEY / HARNESS_LLM_MODEL
+python3 lib/runner.py run examples/petstore.yaml \
+  --out gen \
+  --state state.json \
+  --stacks node,react \
+  --live --llm-runtime openai
+```
+
+`--live` 的语义：模型只能通过工具影响世界，工具异常收敛为 `{"ok": false}` 交回模型自纠错；阶段要达终态必须调用 `report_outputs` 提交覆盖 `required_outputs` 的 structured outputs，再走 `complete_stage` 全门控。未提交、超过 `--llm-max-turns` 或连续空转时，阶段停在 `running` 并返回失败，不会伪造完成。
+
 > 建议将 `state.json` 和 `gen/` 作为运行产物处理，不要提交到业务代码仓库。
 
 ---
@@ -255,6 +278,10 @@ python3 lib/runner.py status --state <状态文件>
 | `--auto` | 演示自动模式，不是正式人工审批替代品 |
 | `--repo` | 目标业务仓库；用于读取 `.agents/docs/` 仓库知识 |
 | `--context-max-tokens` | 每个 LLM directive 的知识上下文预算，默认 4000 |
+| `--live` | LLM 阶段经 tool calling 主循环真实执行，而非仅签发 directive |
+| `--llm-runtime` | LLM 运行时：`mock`（脚本驱动，默认）或 `openai`（OpenAI 兼容网关） |
+| `--llm-script` | mock 运行时脚本（JSON，支持 `stages.<stage>` 分阶段步骤数组） |
+| `--llm-max-turns` | 单阶段 tool calling 最大轮次，默认 12 |
 
 ---
 
@@ -474,6 +501,9 @@ fe-be-contract-harness/
 │   ├── stack/               # 四技术栈 adapter
 │   ├── runner.py            # 工作流 runner
 │   ├── transition.py        # 唯一正式状态迁移入口
+│   ├── llm_dispatch.py      # --live 模式：LLM 阶段 tool calling 主循环
+│   ├── llm_client.py        # LLM 客户端（mock / openai 运行时）
+│   ├── tool_registry.py     # LLM 阶段可用工具注册表
 │   ├── context_orchestrator.py
 │   ├── domain_knowledge.py
 │   └── repo_knowledge.py
@@ -488,6 +518,7 @@ fe-be-contract-harness/
 - ✅ 契约解析、四栈生成、G1、跨栈一致性、状态机、receipt、checkpoint、覆盖率门控等确定性能力可本地运行和测试；
 - ✅ 领域知识与仓库知识可被校验，并可以自动进入 LLM dispatch context；
 - ✅ 非自动 runner 不会把 LLM 阶段伪装成已完成；
-- ⚠️ 真实平台的“启动 Agent → 回传 StageResult → 调用 transition”适配尚需在 CatPaw / Claude Code / OpenClaw 等目标运行时完成并验证；
+- ✅ `--live` 模式下 LLM 阶段可经 tool calling 主循环真实执行（mock / openai 运行时），全程走 transition 门控、无旁路；
+- ⚠️ 真正接入 CatPaw / Claude Code / OpenClaw 等平台的“启动 Agent → 回传 StageResult → 调用 transition”适配仍需按目标运行时验证；
 - ⚠️ `workflow-dag.json` 定义了并行分支关系；通用 `parallel_wave_scheduler` 已可用，但 runner 当前仍以顺序循环调度确定性分支；
 - ⚠️ `--auto` 仅用于本地演示和测试，不应替代真实人工审批与部署。
