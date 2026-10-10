@@ -1,2 +1,2 @@
-pyyaml
-pytest
+pyyaml>=6.0,<7
+pytest>=7.0,<9

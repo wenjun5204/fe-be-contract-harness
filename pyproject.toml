@@ -1,0 +1,26 @@
+[project]
+name = "fe-be-contract-harness"
+version = "0.1.0"
+description = "前后端契约驱动 SDLC Harness —— OpenAPI 契约驱动生成 + 前后端一致性门控 + 多平台运行"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+# 基线:E(pycodestyle 错误)+ F(pyflakes)+ W(警告)+ I(import 排序)。
+# UP(pep585/604 现代化)等风格类规则刻意未启用,避免无意义的大规模 churn。
+select = ["E", "F", "W", "I"]
+# E501 行宽豁免:中文注释/长提示字符串按 codepoint 计数不公平,且属 formatter 领域。
+# 新代码尽量 <=110 列,不强求。
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["lib"]
