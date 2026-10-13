@@ -11,6 +11,9 @@ from lib.stack.common import collect_refs
 
 def java_type(schema: dict, schemas: dict) -> str:
     """OpenAPI schema → Java 类型字符串。"""
+    if not schema:
+        # 与 TS 侧 ts_type(None) -> "void" 对齐:无 JSON 2xx 响应(如二进制回图端点)
+        return "void"
     if "$ref" in schema:
         return schema["$ref"].rsplit("/", 1)[-1]
     t = schema.get("type")

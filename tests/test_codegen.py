@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """契约驱动生成 + G1 校验自测。运行:python3 tests/test_codegen.py"""
+import json
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -73,6 +75,34 @@ def test_verify_gate():
     for stack in ("react", "vue", "node", "java"):
         r = verify(EXAMPLE, stack)
         assert r["ok"], r
+
+
+def test_no_json_response_endpoint():
+    """无 2xx JSON 响应的端点(二进制回图/204):四栈一致渲染为 void,不崩溃。
+
+    回归:java_type(None) 曾因 \"$ref\" in None 抛 TypeError,
+    而其余三栈 ts_type(None) -> \"void\" 早有兜底。
+    """
+    contract = {
+        "openapi": "3.0.0",
+        "info": {"title": "t", "version": "1"},
+        "paths": {
+            "/img": {"get": {"responses": {"200": {"description": "binary",
+                "content": {"image/png": {"schema": {"type": "string", "format": "binary"}}}}}}},
+            "/ping": {"get": {"responses": {"204": {"description": "no content"}}}},
+        },
+        "components": {"schemas": {}},
+    }
+    with tempfile.TemporaryDirectory() as d:
+        cpath = Path(d) / "no-resp.json"
+        cpath.write_text(json.dumps(contract), encoding="utf-8")
+        for stack in ("react", "vue", "node", "java"):
+            files = generate(cpath, stack)
+            rendered = "\n".join(str(f) for f in files.values())
+            assert "get_img" in rendered and "get_ping" in rendered, (stack, rendered)
+            # G1 不因空响应崩
+            r = verify(cpath, stack)
+            assert r["ok"], (stack, r)
         assert r["idempotent"], r
         assert r["routes_ok"] and r["models_ok"], r
 
@@ -84,7 +114,8 @@ def main():
     test_vue_generate()
     test_java_generate()
     test_verify_gate()
-    print("OK: codegen 自测通过(6 组断言)")
+    test_no_json_response_endpoint()
+    print("OK: codegen 自测通过(7 组断言)")
 
 
 if __name__ == "__main__":
