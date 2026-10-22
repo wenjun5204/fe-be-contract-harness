@@ -35,13 +35,14 @@ from lib.contract.generator import write_out  # noqa: E402
 from lib.contract.parser import parse_contract  # noqa: E402
 from lib.contract.verify import verify  # noqa: E402
 from lib.delegation import issue_receipt, load_policy, resolve_subagents  # noqa: E402
-from lib.state_manager import actionable_stages, init_state, summary  # noqa: E402
+from lib.state_manager import actionable_stages, init_state, read_state, summary  # noqa: E402
 from lib.transition import TransitionError, complete_stage, skip_stage, start_stage  # noqa: E402
 
 # 确定性阶段(可直接执行)vs LLM 阶段(签发委派指令)
 DETERMINISTIC = {"0", "5A", "5B", "6", "10"}
 
-# 演示模式(契约已提供)下跳过的 LLM 阶段及其理由
+# 演示模式(契约已提供)下跳过的 LLM 阶段及其理由。
+# planner 只决策 1/2/3/4(基于已有产物),7/8/9 属演示场景缺省,保留在此表作 fallback 合并。
 SKIP_STAGES = {
     "1": ("orchestrator/requirements-analyst", "契约已提供(输入即契约),需求以契约为准"),
     "2": ("contract/contract-designer", "契约已提供(输入即契约),契约设计以契约为准"),
@@ -53,12 +54,126 @@ SKIP_STAGES = {
 }
 
 
+def _planned_skips() -> dict:
+    """P0-8: 路径决策来自 planner(数据)而非硬编码控制流;SKIP_STAGES 作 fallback 合并。
+
+    planner 说不 skip 的阶段沿用 SKIP_STAGES 的演示理由;planner 说 skip 的
+    理由更准确反映"为什么可以跳过"(输入即契约)。skip 本身仍走 skip_stage
+    全门控(receipt/approved_by),FSM 兜底汇合点(6/9)不可跳。
+    """
+    from lib.planner.planner import plan
+    inputs = {"has_contract": True, "has_tech_plan": False, "has_branch": False}
+    decisions = plan(inputs)["stages"]
+    merged: dict = {}
+    for sid, (sub, fallback_reason) in SKIP_STAGES.items():
+        if decisions.get(sid) == "skip":
+            merged[sid] = (sub, f"planner 确认: {fallback_reason}")
+        else:
+            merged[sid] = (sub, fallback_reason)
+    return merged
+
+
 def _change_id(contract: Path) -> str:
     return contract.stem
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# 事件/trajectory 落盘(事件溯源):单条 JSON append,Ctrl-C/崩溃不丢已发生事件。
+EVENTS_FILE = "events.jsonl"
+TRANSCRIPTS_DIR = "transcripts"
+# 落盘时对超长字符串截断(如 write_file 的 content),避免日志膨胀
+_MAX_DETAIL_CHARS = 2000
+
+
+def _truncate_deep(value, limit: int = _MAX_DETAIL_CHARS):
+    """深度截断 dict/list 内的超长字符串(落盘旁路记录专用,不影响内存事件)。"""
+    if isinstance(value, str):
+        return value if len(value) <= limit else value[:limit] + f"...[truncated {len(value) - limit} chars]"
+    if isinstance(value, dict):
+        return {k: _truncate_deep(v, limit) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_truncate_deep(v, limit) for v in value]
+    return value
+
+
+def _persist_event(out_dir: Path, change_id: str, event: dict) -> None:
+    """单条事件 append 到 events.jsonl(每条即时落盘,append-only 天然崩溃安全)。"""
+    events_file = Path(out_dir) / EVENTS_FILE
+    events_file.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(
+        {"at": _now(), "change_id": change_id, **_truncate_deep(event)},
+        ensure_ascii=False, default=str,
+    )
+    with open(events_file, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
+
+def _persist_transcript(out_dir: Path, stage: str, result: dict) -> None:
+    """--live 阶段的 trajectory 落盘:完整 tool calling 过程,供复盘与 evals 回放(P2-3)。"""
+    transcript = result.get("transcript")
+    if not transcript:
+        return
+    tdir = Path(out_dir) / TRANSCRIPTS_DIR
+    tdir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "stage": stage,
+        "ok": result.get("ok"),
+        "status": result.get("status"),
+        "tool_call_count": result.get("tool_call_count"),
+        "reasons": result.get("reasons"),
+        "at": _now(),
+        "transcript": _truncate_deep(transcript),
+    }
+    (tdir / f"stage-{stage}.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+    )
+
+
+def _collect_coverage(group: List[str], repo: Optional[str | Path]) -> str:
+    """P0-6: 尽力采集真实覆盖率;无命令/无仓库/失败 → 降级为 G1 骨架说明字符串。
+
+    只采集上报,不做门控拦截(strong-gate 留给 P2-4 接 checkpoint)。命令来自
+    各栈 adapter 的 COVERAGE 常量(项目自带,非 LLM 可控)。
+    """
+    from lib.coverage_collector import collect
+    fallback = "G1 verified(骨架生成,未跑真实覆盖率)"
+    if not repo:
+        return fallback
+    parts = []
+    for s in group:
+        r = collect(s, str(repo))
+        if "error" in r:
+            return fallback  # 任一栈采集失败即降级,保持 outputs 单一字符串形态
+        line_pct = (r.get("report") or {}).get("changed_line")
+        parts.append(f"{s}: {line_pct}%" if line_pct is not None else f"{s}: no-line-coverage")
+    return "; ".join(parts) if parts else fallback
+
+
+def _stage_in_terminal(state_file: Path, sid: str) -> bool:
+    """阶段已达终态(completed/skipped)→ 重跑时跳过实体工作(幂等 resume)。
+
+    必须在实体工作(如 write_out 文件重写)之前检查,否则已完成阶段的产物
+    会先被覆盖、再被 transition 门控拦住,留下与 state 不一致的文件。
+    """
+    from lib.state_manager import TERMINAL
+    return read_state(state_file)["stages"].get(sid, {}).get("state") in TERMINAL
+
+
+class _EventLog(list):
+    """内存事件列表 + 每条即时落盘 events.jsonl(事件溯源)。"""
+
+    def __init__(self, out_dir: Optional[str | Path] = None, change_id: str = ""):
+        super().__init__()
+        self._out_dir = Path(out_dir) if out_dir else None
+        self._change_id = change_id
+
+    def emit(self, event: dict) -> None:
+        self.append(event)
+        if self._out_dir:
+            _persist_event(self._out_dir, self._change_id, event)
 
 
 def _stage_subagents(stage: str, policy: dict, stacks: Optional[List[str]] = None, *, for_skip: bool = False) -> List[str]:
@@ -99,15 +214,15 @@ def _register(state_file: Path, receipt: dict) -> dict:
     return receipt
 
 
-def _try_transition(state_file: Path, fn, events: List[dict], stage: str, kind: str, detail: str) -> Optional[dict]:
+def _try_transition(state_file: Path, fn, events: "_EventLog", stage: str, kind: str, detail: str) -> Optional[dict]:
     """执行一个经 transition 的动作;失败记录 blocked 事件。"""
     try:
         res = fn()
         status = res.get("status") or res.get("state")
-        events.append({"stage": stage, "kind": kind, "detail": detail, "status": status})
+        events.emit({"stage": stage, "kind": kind, "detail": detail, "status": status})
         return res
     except TransitionError as e:
-        events.append({"stage": stage, "kind": "blocked", "detail": f"{detail} -> {e}"})
+        events.emit({"stage": stage, "kind": "blocked", "detail": f"{detail} -> {e}"})
         return None
 
 
@@ -148,12 +263,12 @@ def _run_llm_stage(
     llm_script: Optional[str | Path],
     llm_max_turns: int,
     auto: bool,
-    events: List[dict],
+    events: "_EventLog",
 ) -> None:
     """LLM 阶段统一入口:默认仅签发 directive;--live 时经 tool calling 循环真实执行。"""
     directive = _directive(sid, policy, str(contract), entities, repo, context_max_tokens)
     if not live:
-        events.append({"stage": sid, "kind": "agent", "detail": directive})
+        events.emit({"stage": sid, "kind": "agent", "detail": directive})
         return
     from lib.llm_dispatch import run_llm_stage
     res = run_llm_stage(
@@ -164,7 +279,9 @@ def _run_llm_stage(
         max_turns=llm_max_turns,
         auto_approve=auto,
     )
-    events.append({"stage": sid, "kind": "llm", "detail": res})
+    events.emit({"stage": sid, "kind": "llm", "detail": res})
+    # trajectory 落盘(--live 独有:完整 tool calling 过程)
+    _persist_transcript(events._out_dir, sid, res)  # noqa: SLF001 — 内部协作类
 
 
 def run(
@@ -190,10 +307,11 @@ def run(
     if not state_file.exists():
         init_state(state_file, _change_id(contract))
 
-    events: List[dict] = []
+    events = _EventLog(out_dir=out_dir, change_id=_change_id(contract))
+    planned_skips = _planned_skips() if auto else SKIP_STAGES
 
     def record(stage: str, kind: str, detail) -> None:
-        events.append({"stage": stage, "kind": kind, "detail": detail})
+        events.emit({"stage": stage, "kind": kind, "detail": detail})
 
     # ---- Stage 0: 初始化(确定性) ----
     _try_transition(
@@ -210,7 +328,7 @@ def run(
     # ---- Stage 1/2/3/4: 契约已提供 → LLM 阶段 ----
     for sid in ("1", "2", "3", "4"):
         if auto and not live:
-            sub, reason = SKIP_STAGES[sid]
+            sub, reason = planned_skips[sid]
             _try_transition(
                 state_file,
                 lambda sid=sid, sub=sub, reason=reason: skip_stage(
@@ -233,6 +351,11 @@ def run(
     backend = [s for s in stacks if s in ("node", "java")]
     frontend = [s for s in stacks if s in ("react", "vue")]
     for sid, group in (("5A", backend), ("5B", frontend)):
+        if _stage_in_terminal(state_file, sid):
+            # 幂等 resume:已完成/已跳过 → 不重写生成文件,避免"文件先被覆盖、
+            # 再被 transition 拦住"导致的产物与 state 不一致
+            events.emit({"stage": sid, "kind": "resume_skip", "detail": "已达终态,跳过实体工作"})
+            continue
         if not group:
             subagents = _stage_subagents(sid, policy, for_skip=True)
             _try_transition(
@@ -258,7 +381,7 @@ def run(
                     state_file, sid,
                     outputs={
                         "changed_files": files,
-                        "coverage": "G1 verified(骨架生成,演示模式未跑真实覆盖率)",
+                        "coverage": _collect_coverage(group, repo),
                     },
                     receipt=_register(state_file, issue_receipt(sid, _stage_subagents(sid, policy, group), "runner")),
                     checkpoint_decision="approve" if auto else None,
@@ -289,7 +412,7 @@ def run(
     # ---- Stage 7/8/9: LLM 阶段 ----
     for sid in ("7", "8", "9"):
         if auto and not live:
-            sub, reason = SKIP_STAGES[sid]
+            sub, reason = planned_skips[sid]
             _try_transition(
                 state_file,
                 lambda sid=sid, sub=sub, reason=reason: skip_stage(

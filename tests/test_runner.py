@@ -3,6 +3,7 @@
 
 运行:python3 tests/test_runner.py
 """
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -39,6 +40,12 @@ def test_auto_mode_completes_loop():
         assert not [e for e in r["events"] if e["kind"] == "blocked"], r["events"]
         # 状态文件可续跑
         assert state.exists()
+        # P0-5: 事件溯源落盘——events.jsonl 每条一行,行数与内存事件一致,均含时间戳
+        events_file = out / "events.jsonl"
+        assert events_file.exists(), "events.jsonl 应随 run 落盘"
+        lines = [json.loads(x) for x in events_file.read_text(encoding="utf-8").splitlines() if x.strip()]
+        assert len(lines) == len(r["events"]), (len(lines), len(r["events"]))
+        assert all(ln["at"] and ln["change_id"] for ln in lines), lines[0]
 
 
 def test_java_vue_receipts_match_actual_codegen_agents():
@@ -96,12 +103,32 @@ def test_non_auto_blocks_at_unmet_prereq():
         assert st["1"]["state"] == "pending"
 
 
+def test_rerun_is_idempotent_resume():
+    """P0-2: 已终态 codegen 阶段重跑不重写文件(resume_skip),产物 mtime 不变。"""
+    import os
+    with tempfile.TemporaryDirectory() as d:
+        out = Path(d) / "gen"
+        state = Path(d) / "state.json"
+        run(EXAMPLE, out, state, ["node"], auto=True)
+        manifest = out / "node" / "codegen-manifest.json"
+        mtime_before = os.stat(manifest).st_mtime_ns
+        r = run(EXAMPLE, out, state, ["node"], auto=True)
+        # 5A 被识别为已终态 → resume_skip,不再走 codegen/transition
+        skips = [e for e in r["events"] if e["kind"] == "resume_skip"]
+        assert {e["stage"] for e in skips} >= {"5A"}, skips
+        # 文件未被重写
+        assert os.stat(manifest).st_mtime_ns == mtime_before, "重跑不应重写已终态阶段的生成文件"
+        # 12 阶段仍全部终态
+        assert r["summary"]["done"] == 12, r["summary"]
+
+
 def main():
     test_auto_mode_completes_loop()
     test_java_vue_receipts_match_actual_codegen_agents()
     test_non_auto_directives_include_budgeted_knowledge_context()
     test_non_auto_blocks_at_unmet_prereq()
-    print("OK: runner 自测通过(4 组断言)")
+    test_rerun_is_idempotent_resume()
+    print("OK: runner 自测通过(5 组断言)")
 
 
 if __name__ == "__main__":
