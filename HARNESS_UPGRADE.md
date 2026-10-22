@@ -89,6 +89,25 @@
 | P2-3 | trajectory 驱动 evals 回放：mock 重放断言门控行为不变（gate regression） | P0-5 已落盘，可直接开工 | ⏳ |
 | P2-4 | coverage_gate 强拦接 checkpoint（低于阈值 → checkpoint_pending 而非 fail） | P0-6 真实覆盖率数据稳定后校准阈值 | ⏳ |
 | P2-5 | 工具执行沙箱（若未来引入执行类工具） | 当前 7+1 工具无执行能力，暂不需要 | ⏳ |
+| P2-6 | 产物 Hash 校验：codegen-manifest 记录产物 sha256；`_validate_evidence` 校验 hash（产物存在≠内容未被篡改） | 无（纯本地） | ⏳ |
+| P2-7 | 评测集扩充（规则重放）：补空响应端点/$ref/enum/array/跨栈一致性 case，断言从 routes 集合扩到产物内容 | 无（纯本地） | ⏳ |
+
+### P2-6/P2-7 的来源：rocky 三方分工原则的对照审计
+
+rocky 的设计原则——**LLM 管语义（需求理解/方案生成/代码生成/语义 review）、脚本管确定性校验（状态/契约/Hash/API 契约/规则重放/产物完整性）、用户管关键决策（需求范围/方案选择/发布授权）**——2026-10-22 逐项对照当前 harness，证据如下：
+
+| Rocky 职责 | 当前 harness 证据 | 状态 |
+|---|---|---|
+| LLM：需求/方案/代码/语义 review | `config/delegation-policy.json:8-28`：阶段 1→requirements-analyst、2→contract-designer、7→code-review、8→test-case-generator | ✅ |
+| 脚本：状态校验 | `lib/workflow_fsm.py:93,118` validate_transition + all_prereqs_completed | ✅ |
+| 脚本：契约校验 | `lib/contract/verify.py:18` G1 门 + `lib/contract/consistency.py:28` 跨栈一致性 | ✅ |
+| 脚本：API 契约 | parser + 四栈 adapter 以 OpenAPI 为 SSOT | ✅ |
+| 脚本：产物完整性 | `lib/transition.py:207` _validate_evidence：type 必填/artifact_path 必须存在/exit_code 非零不可作证据 | ⚠️ 只验存在，不验内容 |
+| 脚本：Hash 校验 | 全库 grep sha256/hashlib/checksum **零命中** | ❌ 缺失 |
+| 脚本：规则重放 | `evals/run_evals.py`：仅 1 个 case，仅断言 routes/models 集合 | ⚠️ 骨架薄 |
+| 用户：需求/方案/发布 | `lib/workflow-dag.json`：1/2/3/6 mandatory_review，7/8/9/10 artifact_review | ✅ |
+
+结论：三方分工架构已落实，**脚本侧两个职责未尽**——Hash 校验完全缺失、规则重放覆盖薄。故立 P2-6/P2-7，补齐脚本侧的确定性防线。
 
 ---
 
@@ -132,7 +151,8 @@ npm run demo
 ```
 
 **下一步候选**（按建议优先级）：
-1. P2-3 evals 回放——前置已齐（P0-5 落盘），防未来改动破坏 fail-closed 语义，性价比最高
-2. 推送 + 合并 feature 分支回 main
-3. P2-2 平台适配（等真实平台接入需求时逐平台 PR）
-4. P2-1 / P2-4（等真实用户反馈）
+1. P2-6 产物 Hash 校验 + P2-7 评测集扩充——rocky 对照审计发现的脚本侧缺口，纯本地可做，补齐确定性防线
+2. P2-3 evals 回放——前置已齐（P0-5 落盘），防未来改动破坏 fail-closed 语义
+3. 推送 + 合并 feature 分支回 main
+4. P2-2 平台适配（等真实平台接入需求时逐平台 PR）
+5. P2-1 / P2-4（等真实用户反馈）
