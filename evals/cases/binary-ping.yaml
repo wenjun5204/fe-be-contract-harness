@@ -1,0 +1,39 @@
+# 评测 case: 无 2xx JSON 响应端点(二进制回图 + 204 no content)
+# 回归 java_type(None) TypeError(修复: 与 ts_type(None)->void 对齐)
+openapi: 3.0.0
+info:
+  title: binary-and-empty-response
+  version: "1.0"
+paths:
+  /img:
+    get:
+      responses:
+        "200":
+          description: binary image
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+  /ping:
+    get:
+      responses:
+        "204":
+          description: no content
+  /items/{itemId}:
+    get:
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: integer
+components:
+  schemas: {}

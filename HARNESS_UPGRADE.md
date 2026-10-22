@@ -86,11 +86,11 @@
 |---|---|---|---|
 | P2-1 | condenser LLM 摘要版（被空洞化轮次摘要成 recap） | P1-1 确定性版实测不够用 | ⏳ |
 | P2-2 | platform/event_adapter 精确映射 + 各平台 fixture 测试 | 需真实平台（Claude Code/OpenClaw）运行时逐个验证 | ⏳ |
-| P2-3 | trajectory 驱动 evals 回放：mock 重放断言门控行为不变（gate regression） | P0-5 已落盘，可直接开工 | ⏳ |
+| P2-3 | trajectory 驱动 evals 回放：mock 重放断言门控行为不变（gate regression） | P0-5 已落盘，可直接开工 | ✅ |
 | P2-4 | coverage_gate 强拦接 checkpoint（低于阈值 → checkpoint_pending 而非 fail） | P0-6 真实覆盖率数据稳定后校准阈值 | ⏳ |
 | P2-5 | 工具执行沙箱（若未来引入执行类工具） | 当前 7+1 工具无执行能力，暂不需要 | ⏳ |
-| P2-6 | 产物 Hash 校验：codegen-manifest 记录产物 sha256；`_validate_evidence` 校验 hash（产物存在≠内容未被篡改） | 无（纯本地） | ⏳ |
-| P2-7 | 评测集扩充（规则重放）：补空响应端点/$ref/enum/array/跨栈一致性 case，断言从 routes 集合扩到产物内容 | 无（纯本地） | ⏳ |
+| P2-6 | 产物 Hash 校验：codegen-manifest 记录产物 sha256；`_validate_evidence` 校验 hash（产物存在≠内容未被篡改） | 无（纯本地） | ✅ |
+| P2-7 | 评测集扩充（规则重放）：补空响应端点/$ref/enum/array/跨栈一致性 case，断言从 routes 集合扩到产物内容 | 无（纯本地） | ✅ |
 
 ### P2-6/P2-7 的来源：rocky 三方分工原则的对照审计
 
@@ -135,12 +135,6 @@ runner ──波次调度(5A/5B 并行)──► transition(RLock 串行) ──
 
 ## 四、进度追踪
 
-**已完成**：
-- ✅ P0 全部 8 项（2026-10-22，commit 94ae3a8 / 2353bf5 / ecabe2e）
-- ✅ P1 全部 7 项（2026-10-22，commit 5c67ccd / 3096ea9 / 04911b1）
-- ✅ 审计孤儿模块清零：smart_retry / self_heal / experience / code_graph / coverage_collector / planner / parallel_wave_scheduler / fail_stage / retry_stage 全部接入执行主链
-- ✅ 测试从 139 → 162 个；ruff + pytest + smoke + demo 全绿
-
 **验证命令**（每项改造后必跑）：
 
 ```bash
@@ -150,9 +144,17 @@ npm test
 npm run demo
 ```
 
+**已完成**：
+- ✅ P0 全部 8 项（2026-10-22，commit 94ae3a8 / 2353bf5 / ecabe2e）
+- ✅ P1 全部 7 项（2026-10-22，commit 5c67ccd / 3096ea9 / 04911b1）
+- ✅ P2-6 / P2-7 / P2-3（2026-10-22）：
+  - P2-6 产物 Hash 校验：`write_out` 在 codegen-manifest.json 记录产物 sha256；`_validate_evidence` 对目录型 artifact 强校验 hash（篡改→拦截，旧 manifest 无 hash 降级放行）。已验证：篡改任一产物文件后 complete_stage 被拦。
+  - P2-7 评测集扩充：petstore 1 case → 3 case（binary-ping 空响应端点回归、ref-enum-array $ref/enum/嵌套 array + 跨栈一致性断言、产物 hash 完整性）。已验证：撤掉 java void 修复时 binary-ping case 让评测崩溃退出。
+  - P2-3 门控行为回放：`evals/replay_gates.py` 5 场景（正常交付/空转 failed/缺产出 gate_blocked/瞬时错误重试恢复/前置未就绪 blocked），mock 确定性重放断言 fail-closed 语义不变，已接进 smoke-test（CI 每次跑）。
+- ✅ 审计孤儿模块清零：smart_retry / self_heal / experience / code_graph / coverage_collector / planner / parallel_wave_scheduler / fail_stage / retry_stage 全部接入执行主链
+- ✅ 测试从 139 → 165+；ruff + pytest + smoke（含 evals 3/3 + replay 5/5）+ demo 全绿
+
 **下一步候选**（按建议优先级）：
-1. P2-6 产物 Hash 校验 + P2-7 评测集扩充——rocky 对照审计发现的脚本侧缺口，纯本地可做，补齐确定性防线
-2. P2-3 evals 回放——前置已齐（P0-5 落盘），防未来改动破坏 fail-closed 语义
-3. 推送 + 合并 feature 分支回 main
-4. P2-2 平台适配（等真实平台接入需求时逐平台 PR）
-5. P2-1 / P2-4（等真实用户反馈）
+1. 推送 + 合并 feature 分支回 main
+2. P2-2 平台适配（等真实平台接入需求时逐平台 PR）
+3. P2-1 condenser LLM 摘要版 / P2-4 coverage 强拦 / P2-5 工具沙箱（等真实用户反馈或执行类工具需求）

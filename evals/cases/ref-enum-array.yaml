@@ -1,0 +1,68 @@
+# 评测 case: $ref / enum / array / 嵌套 $ref 组合
+openapi: 3.0.0
+info:
+  title: ref-enum-array
+  version: "1.0"
+paths:
+  /orders:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Order"
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrder"
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+components:
+  schemas:
+    OrderStatus:
+      type: string
+      enum: ["PENDING", "PAID", "SHIPPED", "CANCELLED"]
+    Order:
+      type: object
+      required: ["orderId", "status", "amount", "items"]
+      properties:
+        orderId:
+          type: string
+        status:
+          $ref: "#/components/schemas/OrderStatus"
+        amount:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderItem"
+    OrderItem:
+      type: object
+      required: ["sku", "qty"]
+      properties:
+        sku:
+          type: string
+        qty:
+          type: integer
+    CreateOrder:
+      type: object
+      required: ["items"]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderItem"
+        note:
+          type: string

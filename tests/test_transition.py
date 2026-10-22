@@ -3,12 +3,14 @@
 
 运行:python3 tests/test_transition.py
 """
+import json
 import sys
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from lib.contract.generator import verify_artifacts, write_out  # noqa: E402
 from lib.delegation import consume_receipt, issue_receipt, register_receipt  # noqa: E402
 from lib.state_manager import actionable_stages, init_state, read_state  # noqa: E402
 from lib.transition import (  # noqa: E402
@@ -447,6 +449,60 @@ def _requirements_spec() -> dict:
     }
 
 
+def test_evidence_hash_integrity():
+    """P2-6: 产物内容 hash 校验 —— 篡改产物后 evidence 拦截;旧 manifest 降级放行。"""
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        sub = root / "repo" / ".harness"
+        sub.mkdir(parents=True)
+        sf = sub / "state.json"
+        init_state(sf, "t")
+        # 真实生成一份带 artifacts hash 的产物目录
+        gen_dir = root / "repo" / "gen" / "node"
+        repo_root = Path(__file__).resolve().parent.parent
+        write_out(repo_root / "examples" / "petstore.yaml", "node", gen_dir)
+        # 生成的 manifest 应含 artifacts hash
+        manifest = json.loads((gen_dir / "codegen-manifest.json").read_text(encoding="utf-8"))
+        assert manifest["artifacts"], manifest
+        some_file = next(iter(manifest["artifacts"]))
+
+        start_stage(sf, "0")
+        r0 = issue_receipt("0", "orchestrator/init", "t0")
+        _reg(sf, r0)
+        outputs = {"execution_plan": "plan"}
+        # 产物未篡改 → 通过
+        res = complete_stage(sf, "0", outputs=outputs, receipt=r0,
+                             evidence=[{"type": "codegen", "artifact_path": "gen/node"}])
+        assert res["status"] == "completed", res
+
+        # 篡改一个产物文件 → 新阶段(1)的 evidence 被拦截
+        start_stage(sf, "1")
+        r1 = issue_receipt("1", "orchestrator/requirements-analyst", "t1")
+        _reg(sf, r1)
+        (gen_dir / some_file).write_text("// tampered\n", encoding="utf-8")
+        try:
+            complete_stage(sf, "1", outputs={"requirements_doc": "d", "requirements_spec": "s",
+                                             "quality_gate_result": "q"},
+                           receipt=r1, checkpoint_decision="approve",
+                           evidence=[{"type": "codegen", "artifact_path": "gen/node"}])
+            assert False, "篡改产物应被 hash 校验拦截"
+        except TransitionError as e:
+            assert "篡改" in str(e), e
+
+        # 篡改拦截后阶段 1 停在 running(fail-closed:证据不足不转终态),阶段 2 无法
+        # start——正是门控语义。旧 manifest 降级用 verify_artifacts 单元级验证:
+        legacy_dir = root / "repo" / "gen" / "legacy"
+        legacy_dir.mkdir(parents=True)
+        (legacy_dir / "codegen-manifest.json").write_text(
+            json.dumps({"stack": "node", "routes": [], "models": []}), encoding="utf-8")
+        (legacy_dir / "a.ts").write_text("old", encoding="utf-8")
+        r = verify_artifacts(legacy_dir)
+        assert r["no_manifest"] and not r["tampered"], r  # 无 hash 字段 → 降级,不误伤
+        # 篡改产物对 verify_artifacts 的直接表现
+        r = verify_artifacts(gen_dir)
+        assert some_file in r["tampered"], r
+
+
 def main():
     test_start_complete_no_checkpoint()
     test_prereq_blocked()
@@ -459,6 +515,7 @@ def main():
     test_checkpoint_pending_outputs_merged()
     test_error_message_not_duplicated()
     test_evidence_structured_validation()
+    test_evidence_hash_integrity()
     test_subagent_mismatch_did_you_mean()
     test_start_returns_discovery_info()
     test_deploy_result_structured_validation()

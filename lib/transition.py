@@ -208,6 +208,8 @@ def _validate_evidence(evidence: List[dict], state_file: Path) -> List[str]:
     """evidence 结构化校验(fail-closed 延伸到证据层):
     - 每条必须有非空 type;
     - artifact_path 若存在必须真实存在(相对路径以仓库根 = state 文件上两级为基准);
+    - artifact_path 指向含 codegen-manifest.json(带 artifacts hash)的目录时,
+      强校验产物内容 sha256(P2-6:存在≠未被篡改);旧 manifest 无 hash 字段降级放行;
     - exit_code 非零不能作为完成证据。
     """
     problems: List[str] = []
@@ -227,6 +229,16 @@ def _validate_evidence(evidence: List[dict], state_file: Path) -> List[str]:
                 p = next((c for c in candidates if c.exists()), candidates[0])
             if not p.exists():
                 problems.append(f"evidence[{i}].artifact_path 不存在: {artifact}(以仓库根 {repo_root} 为基准)")
+            elif p.is_dir() and (p / "codegen-manifest.json").is_file():
+                # P2-6: 目录型 artifact 指向生成产物 → hash 完整性校验
+                from lib.contract.generator import verify_artifacts
+                r = verify_artifacts(p)
+                if r["tampered"]:
+                    problems.append(
+                        f"evidence[{i}] 产物被篡改(hash 不符): {', '.join(r['tampered'][:5])}"
+                    )
+                if r["missing"]:
+                    problems.append(f"evidence[{i}] 产物缺失: {', '.join(r['missing'][:5])}")
         exit_code = ev.get("exit_code")
         if exit_code is not None and exit_code != 0:
             problems.append(f"evidence[{i}].exit_code={exit_code}(非零退出码不能作为完成证据)")
