@@ -21,14 +21,51 @@ CONTRACT = REPO / "examples" / "petstore.yaml"
 def test_schemas_format():
     tools = build_default_tools(CONTRACT)
     schemas = tools.schemas()
-    assert len(schemas) == 7
+    assert len(schemas) == 8
     for s in schemas:
         assert s["type"] == "function"
         fn = s["function"]
         assert fn["name"] and fn["description"] and fn["parameters"]["type"] == "object"
     names = {s["function"]["name"] for s in schemas}
     assert {"read_contract", "verify_codegen", "consistency_check",
-            "query_knowledge", "read_file", "write_file", "report_outputs"} == names
+            "query_knowledge", "read_file", "write_file", "query_symbols",
+            "report_outputs"} == names
+
+
+def test_query_symbols_and_read_file_paging():
+    """P1-4: query_symbols 结构化检索 + read_file 翻页/截断提示(ACI 紧凑化)。"""
+    with tempfile.TemporaryDirectory() as d:
+        # 造一个带符号的源文件和一个长文件
+        (Path(d) / "svc.py").write_text(
+            "class Order:\n    pass\n\ndef create_order():\n    return Order()\n", encoding="utf-8")
+        (Path(d) / "long.txt").write_text("\n".join(f"line-{i}" for i in range(1, 501)), encoding="utf-8")
+        tools = build_default_tools(CONTRACT, workdir=d)
+
+        # 定义查询
+        res = tools.execute("query_symbols", {"symbol": "Order", "kind": "definition"})
+        assert res["ok"], res
+        assert res["definitions"] and res["definitions"][0]["file"] == "svc.py", res
+        assert res["definitions"][0]["kind"] == "class"
+        # 引用查询
+        res = tools.execute("query_symbols", {"symbol": "Order", "kind": "references"})
+        assert res["ok"] and "svc.py" in res["reference_files"], res
+        # 未知符号不报错,给自纠错提示
+        res = tools.execute("query_symbols", {"symbol": "NoSuchThing"})
+        assert res["ok"] and "hint" in res, res
+
+        # read_file 默认 200 行 + 翻页提示
+        res = tools.execute("read_file", {"path": "long.txt"})
+        assert res["ok"] and res["truncated"], res
+        assert res["lines"] == {"offset": 1, "returned": 200, "total": 500}
+        assert "offset=201" in res["hint"], res
+        # 翻页续读:offset=201 起 50 行(文件还有剩余 → 仍 truncated,提示下一起点)
+        res = tools.execute("read_file", {"path": "long.txt", "offset": 201, "limit": 50})
+        assert res["lines"] == {"offset": 201, "returned": 50, "total": 500}, res
+        assert res["truncated"] and "offset=251" in res["hint"], res
+        assert res["content"].startswith("line-201"), res
+        # 读到文件末尾 → 不再 truncated
+        res = tools.execute("read_file", {"path": "long.txt", "offset": 451, "limit": 100})
+        assert not res["truncated"] and "hint" not in res, res
 
 
 def test_execute_read_contract():
@@ -124,11 +161,12 @@ def main():
     test_execute_read_contract()
     test_args_validation()
     test_query_knowledge()
+    test_query_symbols_and_read_file_paging()
     test_file_tools_and_path_safety()
     test_safe_join_units()
     test_report_outputs_terminal()
     test_custom_registry()
-    print("OK: tool_registry 自测通过(8 组断言)")
+    print("OK: tool_registry 自测通过(9 组断言)")
 
 
 if __name__ == "__main__":

@@ -49,6 +49,12 @@ class ToolError(Exception):
     """工具调用失败(参数或执行错误)。"""
 
 
+# read_file 默认窗口(ACI:输出紧凑化,超长提示翻页)
+READ_FILE_MAX_LINES = 200
+# query_symbols 返回上限(引用列表截断,防大仓库撑爆上下文)
+QUERY_SYMBOLS_MAX_REFS = 20
+
+
 @dataclass
 class Tool:
     name: str
@@ -186,7 +192,21 @@ def _read_file_fn(workdir: Path, args: dict) -> dict:
     path = safe_join(workdir, args["path"])
     if not path.is_file():
         raise ToolError(f"文件不存在: {args['path']}")
-    return {"ok": True, "path": args["path"], "content": path.read_text(encoding="utf-8")}
+    lines = path.read_text(encoding="utf-8").splitlines()
+    total = len(lines)
+    offset = args.get("offset", 1)  # 1-based
+    limit = args.get("limit", READ_FILE_MAX_LINES)
+    # ACI 原则:输出紧凑化。超长默认截断,提示模型用 offset 翻页,避免撑爆上下文
+    window = lines[offset - 1: offset - 1 + limit]
+    truncated = total > offset - 1 + len(window)
+    return {
+        "ok": True,
+        "path": args["path"],
+        "content": "\n".join(window),
+        "lines": {"offset": offset, "returned": len(window), "total": total},
+        "truncated": truncated,
+        **({"hint": f"已截断至 {len(window)} 行;继续读取请传 offset={offset + len(window)}"} if truncated else {}),
+    }
 
 
 def _write_file_fn(workdir: Path, args: dict) -> dict:
@@ -194,6 +214,36 @@ def _write_file_fn(workdir: Path, args: dict) -> dict:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(args["content"], encoding="utf-8")
     return {"ok": True, "path": args["path"], "bytes": len(args["content"].encode("utf-8"))}
+
+
+def _query_symbols_fn(workdir: Path, args: dict) -> dict:
+    """code_graph 的工具包装(ACI:紧凑、结构化、可行动)。索引按 workdir 惰性构建一次。"""
+    from lib import code_graph
+    global _SYMBOL_INDEX_CACHE
+    cache_key = str(Path(workdir).resolve())
+    if _SYMBOL_INDEX_CACHE.get("key") != cache_key:
+        _SYMBOL_INDEX_CACHE = {"key": cache_key, "index": code_graph.build_index(str(workdir))}
+    index = _SYMBOL_INDEX_CACHE["index"]
+    symbol = args["symbol"]
+    kind = args.get("kind", "definition")
+    if kind == "definition":
+        defs = code_graph.find_definition(index, symbol)
+        if not defs:
+            return {"ok": True, "symbol": symbol, "definitions": [],
+                    "hint": "未找到;可能符号名有误或不在支持的语言内(TS/JS/Java/Python)"}
+        return {"ok": True, "symbol": symbol, "definitions": defs[:QUERY_SYMBOLS_MAX_REFS]}
+    refs = code_graph.find_references(index, symbol)
+    truncated = len(refs) > QUERY_SYMBOLS_MAX_REFS
+    return {
+        "ok": True, "symbol": symbol,
+        "reference_files": refs[:QUERY_SYMBOLS_MAX_REFS],
+        "total_reference_files": len(refs),
+        **({"hint": f"引用文件超 {QUERY_SYMBOLS_MAX_REFS} 个已截断;高风险符号,改动需评估影响面"} if truncated else {}),
+    }
+
+
+# workdir → 符号索引的进程内缓存(build_index 为 O(files×symbols) 扫描,必须缓存)
+_SYMBOL_INDEX_CACHE: dict = {}
 
 
 def _report_outputs_fn(args: dict) -> dict:
@@ -263,13 +313,30 @@ def build_default_tools(
     ))
     registry.register(Tool(
         name="read_file",
-        description="读取 workspace 内的文件内容。",
+        description="读取 workspace 内的文件内容(默认前 200 行,超长用 offset 翻页)。",
         parameters={
             "type": "object",
-            "properties": {"path": {"type": "string", "description": "相对 workspace 根的路径"}},
+            "properties": {
+                "path": {"type": "string", "description": "相对 workspace 根的路径"},
+                "offset": {"type": "integer", "description": "起始行号(1-based),缺省 1"},
+                "limit": {"type": "integer", "description": f"本次返回行数上限,缺省 {READ_FILE_MAX_LINES}"},
+            },
             "required": ["path"],
         },
         fn=lambda args: _read_file_fn(workdir, args),
+    ))
+    registry.register(Tool(
+        name="query_symbols",
+        description="结构化检索代码符号:查定义位置与引用文件(比读全文件更省上下文)。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "符号名(class/interface/function/def 等)"},
+                "kind": {"type": "string", "enum": ["definition", "references"], "description": "查询类型,缺省 definition"},
+            },
+            "required": ["symbol"],
+        },
+        fn=lambda args: _query_symbols_fn(workdir, args),
     ))
     registry.register(Tool(
         name="write_file",
