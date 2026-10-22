@@ -24,3 +24,4 @@ state.json
 *.log
 .tmp/
 tmp/
+config/experience/
