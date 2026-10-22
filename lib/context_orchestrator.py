@@ -38,7 +38,19 @@ def select_sections(stage: str) -> List[str]:
 
 
 def estimate_tokens(text: str) -> int:
-    return max(1, len(text) // 2)
+    """粗估 token 数:ASCII 段 ~4 字符/token,CJK 段 ~1 字符/token。
+
+    len//2 对中文低估约一半(4000 预算实际注入近翻倍内容),对纯英文高估一倍。
+    纯 ASCII 走 len//4;遇到 CJK 字符每字符计 1,保证预算不超发。
+    """
+    ascii_len = 0
+    cjk = 0
+    for ch in text:
+        if ord(ch) > 0x2E80:  # CJK 及全角区
+            cjk += 1
+        else:
+            ascii_len += 1
+    return max(1, ascii_len // 4 + cjk)
 
 
 def budget_context(sections: List[dict], max_tokens: int) -> List[dict]:

@@ -6,7 +6,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lib.context_orchestrator import budget_context, build_dispatch_context, orchestrate, select_sections  # noqa: E402
+from lib.context_orchestrator import (  # noqa: E402
+    budget_context,
+    build_dispatch_context,
+    estimate_tokens,
+    orchestrate,
+    select_sections,
+)
 
 
 def test_select_sections():
@@ -27,9 +33,19 @@ def test_budget_context():
         {"name": "b", "text": "y" * 100, "priority": 1},
         {"name": "c", "text": "z" * 100, "priority": 2},
     ]
-    # 预算只够 a+b(每个约 50 token)
-    kept = budget_context(sections, max_tokens=101)
+    # 预算只够 a+b(ASCII 每字符 1/4 token,每个约 25 token → 101 预算实际全放下;
+    # 用紧预算验证取舍)
+    kept = budget_context(sections, max_tokens=51)
     assert [s["name"] for s in kept] == ["a", "b"], kept
+
+
+def test_estimate_tokens_cjk():
+    """P0-7: ASCII ~1/4 token,CJK ~1 token;中文预算不再被低估一倍。"""
+    assert estimate_tokens("x" * 100) == 25  # 纯 ASCII:4 字符/token
+    assert estimate_tokens("订单" * 100) == 200  # 纯 CJK:每字 1 token
+    mixed = estimate_tokens("订单" * 50 + "x" * 100)  # 100 CJK + 100 ASCII
+    assert mixed == 100 + 25, mixed
+    assert estimate_tokens("") == 1  # 下限
 
 
 def test_orchestrate():
