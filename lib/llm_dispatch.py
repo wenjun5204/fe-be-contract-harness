@@ -12,8 +12,8 @@ fail-closed 语义(与既有门控完全一致,不新增旁路):
 - 循环内模型只能通过工具影响世界;工具执行异常收敛为 {"ok": False} 回给模型自纠错
 - 阶段要达终态,必须调用 report_outputs 提交覆盖 required_outputs 的 structured
   outputs,再走 complete_stage 全门控(FSM / receipt / checkpoint / evidence)
-- 未调用 report_outputs、超过 max_turns、或模型连续空转 → 阶段停在 running,
-  返回 {"ok": False, "status": "failed"}(不伪造完成)
+- 未调用 report_outputs、超过 max_turns、或模型连续空转 → 经 fail_stage 真实落
+  failed(失败是一等公民状态,可人工 retry),返回 {"ok": False, "status": "failed"}
 
 用法(runner --live 内部调用;亦可独立使用):
     from lib.llm_client import MockLLMClient
@@ -30,10 +30,15 @@ from typing import List, Optional
 
 from lib.delegation import register_receipt
 from lib.llm_client import LLMClient, LLMError
+from lib.smart_retry import retry
 from lib.tool_registry import ToolRegistry, build_default_tools
-from lib.transition import TransitionError, complete_stage, start_stage
+from lib.transition import TransitionError, complete_stage, fail_stage, start_stage
 
 MAX_TURNS_DEFAULT = 12
+# 瞬时错误(超时/限流/网关 5xx)的自动重试:指数退避 0.5s/1s。
+# 永久错误(缺 API key、响应畸形)不重试,一次都不浪费直接走 fail_stage。
+LLM_CALL_RETRIES = 2
+LLM_CALL_BACKOFF = 0.5
 NUDGE_MESSAGE = (
     "你没有调用任何工具。请使用可用工具完成本阶段工作,"
     "并最终调用 report_outputs 提交 structured outputs(不调用无法完成阶段)。"
@@ -134,6 +139,13 @@ def run_llm_stage(
     nudged = False
 
     def _fail(reason: str) -> dict:
+        # 失败是一等公民状态:经 fail_stage 真实落 failed(而非停在 running),
+        # state.json 忠实可审计,summary() 的 failed 列表可见,人工 retry 有合法入口。
+        # TransitionError 容忍(阶段可能已被并发转终态,不因记录失败而再失败)。
+        try:
+            fail_stage(sf, stage, reason=reason)
+        except TransitionError:
+            pass
         return {
             "ok": False, "stage": stage, "status": "failed",
             "reasons": [reason], "transcript": transcript, "tool_call_count": tool_call_count,
@@ -142,7 +154,14 @@ def run_llm_stage(
     # 3. tool calling 主循环
     for turn in range(1, max_turns + 1):
         try:
-            resp = client.chat(messages, toolset.schemas())
+            resp = retry(
+                lambda: client.chat(messages, toolset.schemas()),
+                retries=LLM_CALL_RETRIES,
+                backoff=LLM_CALL_BACKOFF,
+                on_retry=lambda i, e: transcript.append(
+                    {"turn": turn, "retry": i, "error": str(e)}
+                ),
+            )
         except LLMError as e:
             return _fail(f"LLM 运行时错误: {e}")
 

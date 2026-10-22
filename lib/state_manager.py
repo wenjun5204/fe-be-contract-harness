@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,17 +58,35 @@ def init_state(state_file: Path, change_id: str) -> dict:
     return state
 
 
+class StateCorruptedError(RuntimeError):
+    """state.json 解析失败(进程中途被杀导致半截写入等)。"""
+
+
 def read_state(state_file: Path) -> dict:
     if not state_file.exists():
         raise FileNotFoundError(f"state file not found: {state_file}")
-    return json.loads(state_file.read_text(encoding="utf-8"))
+    raw = state_file.read_text(encoding="utf-8")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise StateCorruptedError(
+            f"state file 损坏(可能写入中途被杀): {state_file}; "
+            f"line {e.lineno}: {e.msg}。可用备份恢复:同目录 *.tmp 文件,或重新 init"
+        ) from e
 
 
 def write_state(state_file: Path, state: dict) -> None:
+    """原子写:先写同目录 tmp 再 os.replace,Ctrl-C/崩溃不会留下半截 state.json。
+
+    同目录保证 rename 的原子性;tmp 带 pid 防多进程互踩(单进程 runner 下即崩溃备份)。
+    """
     state["updated_at"] = _now()
-    state_file.write_text(
+    state_file = Path(state_file)
+    tmp = state_file.with_name(f"{state_file.name}.tmp-{os.getpid()}")
+    tmp.write_text(
         json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
+    os.replace(tmp, state_file)
 
 
 def set_stage_state(state_file: Path, stage_id: str, value: str) -> dict:

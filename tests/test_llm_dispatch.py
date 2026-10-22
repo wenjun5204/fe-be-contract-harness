@@ -7,9 +7,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lib.delegation import issue_receipt  # noqa: E402
-from lib.llm_client import MockLLMClient  # noqa: E402
+from lib.llm_client import LLMError, MockLLMClient  # noqa: E402
 from lib.llm_dispatch import run_llm_stage  # noqa: E402
 from lib.state_manager import init_state, read_state, set_stage_state  # noqa: E402
+from lib.transition import retry_stage  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 CONTRACT = REPO / "examples" / "petstore.yaml"
@@ -75,7 +76,7 @@ def test_checkpoint_pending_without_auto_approve():
 
 
 def test_fail_closed_no_report_outputs():
-    """模型不调用 report_outputs(连续两轮空转)→ failed,阶段留在 running。"""
+    """模型不调用 report_outputs(连续两轮空转)→ failed 真实落盘(可人工 retry)。"""
     with tempfile.TemporaryDirectory() as d:
         sf = _state_with_prereqs(d)
         script = [
@@ -86,6 +87,12 @@ def test_fail_closed_no_report_outputs():
                             contract_path=CONTRACT, workdir=d, auto_approve=True)
         assert not res["ok"] and res["status"] == "failed", res
         assert "空转" in res["reasons"][0]
+        # P0-3: 失败是一等公民状态,经 fail_stage 落 failed 并记录原因
+        st = read_state(sf)["stages"]["8"]
+        assert st["state"] == "failed", st
+        assert "空转" in st["error"]["reason"]
+        # 失败后可人工 retry(failed → running)
+        retry_stage(sf, "8")
         assert read_state(sf)["stages"]["8"]["state"] == "running"
 
 
@@ -143,6 +150,47 @@ def test_tool_error_self_correction():
         assert res["ok"] and res["status"] == "completed", res
 
 
+def test_transient_llm_error_retried():
+    """P0-4: 瞬时错误(超时/限流)自动退避重试后成功;永久错误不重试直接 fail。"""
+    class FlakyClient:
+        """前 N 次 chat 抛瞬时错误,之后返回 report_outputs 收尾。"""
+
+        def __init__(self, error: Exception, failures: int):
+            self._error, self._left = error, failures
+
+        def chat(self, messages, tools=None):
+            if self._left > 0:
+                self._left -= 1
+                raise self._error
+            return {"tool_calls": [{"id": "c1", "name": "report_outputs",
+                                    "arguments": {"outputs": {"test_cases": [{"id": "TC-1"}]}}}]}
+
+    with tempfile.TemporaryDirectory() as d:
+        sf = _state_with_prereqs(d)
+        # 瞬时错误(timeout,可 retryable)重试 2 次后成功
+        res = run_llm_stage(_directive(), sf,
+                            client=FlakyClient(LLMError("connection timeout after 30s"), 2),
+                            contract_path=CONTRACT, workdir=d, auto_approve=True)
+        assert res["ok"], res
+        assert any("retry" in t for t in res["transcript"]), res["transcript"]
+
+    with tempfile.TemporaryDirectory() as d:
+        sf = _state_with_prereqs(d)
+        # 永久错误(缺 key,不含 retryable 关键词)一次都不重试,直接 fail
+        class CountingClient(FlakyClient):
+            calls = 0
+
+            def chat(self, messages, tools=None):
+                CountingClient.calls += 1
+                return super().chat(messages, tools)
+
+        res = run_llm_stage(_directive(), sf,
+                            client=CountingClient(LLMError("缺少 OPENAI_API_KEY"), 5),
+                            contract_path=CONTRACT, workdir=d, auto_approve=True)
+        assert not res["ok"] and res["status"] == "failed", res
+        assert CountingClient.calls == 1, f"永久错误不应重试,实际调用 {CountingClient.calls} 次"
+
+
 def main():
     test_stage_completes_with_tool_calls()
     test_checkpoint_pending_without_auto_approve()
@@ -151,7 +199,8 @@ def main():
     test_gate_blocked_on_missing_required_outputs()
     test_blocked_when_prereq_not_ready()
     test_tool_error_self_correction()
-    print("OK: llm_dispatch 自测通过(7 组断言)")
+    test_transient_llm_error_retried()
+    print("OK: llm_dispatch 自测通过(8 组断言)")
 
 
 if __name__ == "__main__":

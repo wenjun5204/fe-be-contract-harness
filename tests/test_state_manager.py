@@ -7,12 +7,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lib.state_manager import (  # noqa: E402
+    StateCorruptedError,
     actionable_stages,
     init_state,
     read_state,
     set_stage_output,
     set_stage_state,
     summary,
+    write_state,
 )
 
 
@@ -60,11 +62,29 @@ def test_outputs_and_summary():
         assert s["actionable"] == ["0"]
 
 
+def test_atomic_write_and_corrupted_read():
+    """P0-1:原子写不留 tmp 残留;半截 JSON 读取时给出可行动的恢复报错。"""
+    with tempfile.TemporaryDirectory() as d:
+        sf = _tmp_state(d)
+        init_state(sf, "change-4")
+        # 正常写:tmp 已被 rename 走,目录内无残留
+        write_state(sf, read_state(sf))
+        assert not any(p.name.startswith("state.json.tmp") for p in Path(d).iterdir())
+        # 模拟崩溃半截写入:直接覆写为截断 JSON
+        sf.write_text('{"change_id": "change-4", "stages": {"0": {"state": "pend', encoding="utf-8")
+        try:
+            read_state(sf)
+            raise AssertionError("损坏 state 应抛 StateCorruptedError")
+        except StateCorruptedError as e:
+            assert "tmp" in str(e), e  # 报错提示恢复路径
+
+
 def main():
     test_init_and_resume()
     test_advance_and_parallel()
     test_outputs_and_summary()
-    print("OK: state_manager 自测通过(3 组断言)")
+    test_atomic_write_and_corrupted_read()
+    print("OK: state_manager 自测通过(4 组断言)")
 
 
 if __name__ == "__main__":
