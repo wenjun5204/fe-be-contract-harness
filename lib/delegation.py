@@ -159,7 +159,11 @@ def _now() -> str:
 
 
 def register_receipt(state_file: str | Path, receipt: dict) -> dict:
-    """把签发后的 receipt 登记到 state 的 receipts 表(幂等:同 stage+token 重复登记覆盖)。"""
+    """把签发后的 receipt 登记到 state 的 receipts 表(幂等:同 stage+token 重复登记覆盖)。
+
+    P1-6: 持 transition 的迁移锁——receipt 登记与后续 start/complete 同属
+    read-modify-write state,并行波次下必须串行化,否则登记会被并发写覆盖。
+    """
     if not validate_receipt(receipt, receipt.get("stage", "")):
         raise ValueError(f"receipt 无效: {receipt}")
     # 尽早校验 subagent 匹配:与其在 complete 时(整段工作做完后)才拒绝,
@@ -167,16 +171,18 @@ def register_receipt(state_file: str | Path, receipt: dict) -> dict:
     mismatch = validate_subagent_match(receipt.get("stage", ""), receipt)
     if mismatch:
         raise ValueError(f"receipt 被拒绝: {mismatch}")
-    state = _load_state(state_file)
-    stage = receipt["stage"]
-    state.setdefault("receipts", {})
-    state["receipts"][stage] = {
-        "receipt": receipt,
-        "used": False,
-        "registered_at": _now(),
-        "consumed_at": None,
-    }
-    _save_state(state_file, state)
+    from lib.transition import _TRANSITION_LOCK
+    with _TRANSITION_LOCK:
+        state = _load_state(state_file)
+        stage = receipt["stage"]
+        state.setdefault("receipts", {})
+        state["receipts"][stage] = {
+            "receipt": receipt,
+            "used": False,
+            "registered_at": _now(),
+            "consumed_at": None,
+        }
+        _save_state(state_file, state)
     return state["receipts"][stage]
 
 

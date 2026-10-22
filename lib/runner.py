@@ -303,6 +303,15 @@ def run(
     contract_model = parse_contract(contract)
     entities = sorted(contract_model.get("schemas", {}).keys())
 
+    # P1-7: 启动环境自检(ACI:报错即给出可行动的安装命令;critical 缺失 fail-fast)
+    from lib.self_heal import heal
+    env = heal()
+    if not env["ok"]:
+        raise RuntimeError(
+            "环境自检失败(critical 依赖缺失): "
+            + "; ".join(f"{d['name']} → {d['install']}" for d in env["missing"] if d["critical"])
+        )
+
     # Stage 0: 初始化
     if not state_file.exists():
         init_state(state_file, _change_id(contract))
@@ -347,15 +356,18 @@ def run(
                 llm_max_turns=llm_max_turns, auto=auto, events=events,
             )
 
-    # ---- Stage 5A/5B: codegen(确定性) ----
+    # ---- Stage 5A/5B: codegen(确定性,同波并行) ----
     backend = [s for s in stacks if s in ("node", "java")]
     frontend = [s for s in stacks if s in ("react", "vue")]
-    for sid, group in (("5A", backend), ("5B", frontend)):
+
+    def _codegen_task(sid: str, group: List[str]) -> None:
+        """单个 codegen 阶段的完整工作(生成+G1 门+transition),线程安全:
+        state.json 并发写由 transition 模块级锁串行化(P1-6),生成产物各栈目录天然隔离。"""
         if _stage_in_terminal(state_file, sid):
             # 幂等 resume:已完成/已跳过 → 不重写生成文件,避免"文件先被覆盖、
             # 再被 transition 拦住"导致的产物与 state 不一致
             events.emit({"stage": sid, "kind": "resume_skip", "detail": "已达终态,跳过实体工作"})
-            continue
+            return
         if not group:
             subagents = _stage_subagents(sid, policy, for_skip=True)
             _try_transition(
@@ -368,7 +380,7 @@ def run(
                 ),
                 events, sid, "skip", "无该端技术栈",
             )
-            continue
+            return
         try:
             files = []
             for s in group:
@@ -390,7 +402,15 @@ def run(
                 events, sid, "done", f"codegen + G1 门:{', '.join(group)}",
             )
         except Exception as e:  # codegen 本身失败
-            record(sid, "failed", f"codegen 异常: {e}")
+            events.emit({"stage": sid, "kind": "failed", "detail": f"codegen 异常: {e}"})
+
+    # P1-6: 5A/5B 无相互依赖 → 同波并行(波次调度,与 DAG 定义一致);
+    # 波内完成事件顺序不确定,mock 断言按集合比较
+    from lib.parallel_wave_scheduler import run as run_waves
+    run_waves(
+        {"5A": [], "5B": []},
+        executor=lambda sid: _codegen_task(sid, backend if sid == "5A" else frontend),
+    )
 
     # ---- Stage 6: 一致性(确定性) ----
     try:

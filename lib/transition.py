@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -54,6 +55,24 @@ class TransitionError(Exception):
     def __init__(self, message: str, reasons: Optional[List[str]] = None):
         super().__init__(message)
         self.reasons = reasons or [message]
+
+
+# P1-6: 状态迁移的进程内互斥锁(锁覆盖 read→modify→write 全程)。
+# 5A/5B 经 parallel_wave_scheduler 并行执行时,两个线程同时 transition 会
+# read-modify-write 互踩丢更新;单进程 runner 下进程内 RLock 即够(跨进程需文件锁,当前无场景)。
+_TRANSITION_LOCK = threading.RLock()
+
+
+def _transition_locked(fn):
+    """装饰状态迁移入口:整个 read→modify→write 串行化。RLock 允许同线程嵌套
+    (complete_stage 内部可能再调 transition 辅助函数)。"""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with _TRANSITION_LOCK:
+            return fn(*args, **kwargs)
+    return wrapper
 
 
 def _now() -> str:
@@ -222,6 +241,7 @@ def _check_prereqs(state_file: Path, stage_id: str) -> None:
         raise TransitionError(f"阶段 {stage_id} 前置未就绪: {waiting}", [f"prereq_not_ready: {waiting}"])
 
 
+@_transition_locked
 def start_stage(state_file: Path | str, stage_id: str) -> dict:
     """pending → running。校验前置全部终态。"""
     sf = Path(state_file)
@@ -242,6 +262,7 @@ def start_stage(state_file: Path | str, stage_id: str) -> dict:
     return {"ok": True, "stage": stage_id, "state": nxt.value, **_stage_discovery(stage_id)}
 
 
+@_transition_locked
 def complete_stage(
     state_file: Path | str,
     stage_id: str,
@@ -369,6 +390,7 @@ def complete_stage(
     return {"ok": True, "stage": stage_id, "status": target, "checkpoint": checkpoint_record}
 
 
+@_transition_locked
 def skip_stage(
     state_file: Path | str,
     stage_id: str,
@@ -441,6 +463,7 @@ def skip_stage(
     return {"ok": True, "stage": stage_id, "state": "skipped"}
 
 
+@_transition_locked
 def fail_stage(state_file: Path | str, stage_id: str, *, reason: str = "") -> dict:
     """running → failed,记录失败原因。"""
     sf = Path(state_file)
@@ -459,6 +482,7 @@ def fail_stage(state_file: Path | str, stage_id: str, *, reason: str = "") -> di
     return {"ok": True, "stage": stage_id, "state": nxt.value}
 
 
+@_transition_locked
 def retry_stage(state_file: Path | str, stage_id: str) -> dict:
     """failed → running(重试)。"""
     sf = Path(state_file)

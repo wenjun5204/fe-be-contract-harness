@@ -122,13 +122,33 @@ def test_rerun_is_idempotent_resume():
         assert r["summary"]["done"] == 12, r["summary"]
 
 
+def test_parallel_wave_codegen_thread_safe():
+    """P1-6: 5A/5B 波次并行,receipt 登记与 transition 串行化,两阶段都真实终态。"""
+    with tempfile.TemporaryDirectory() as d:
+        out = Path(d) / "gen"
+        state = Path(d) / "state.json"
+        # 前后端都有栈 → 5A/5B 同波并行执行
+        r = run(EXAMPLE, out, state, ["node", "java", "react", "vue"], auto=True)
+        assert r["ok"], r
+        assert r["summary"]["done"] == 12, r["summary"]
+        st = read_state(state)["stages"]
+        assert st["5A"]["state"] == "completed" and st["5B"]["state"] == "completed", (st["5A"], st["5B"])
+        # 两阶段的 receipt 均已消费(登记未被并发写覆盖)
+        receipts = read_state(state)["receipts"]
+        assert receipts["5A"]["used"] and receipts["5B"]["used"], receipts
+        # 无 blocked(并行下 5A receipt 丢失会导致 gate_blocked)
+        assert not [e for e in r["events"] if e["kind"] == "blocked"], [
+            e for e in r["events"] if e["kind"] == "blocked"]
+
+
 def main():
     test_auto_mode_completes_loop()
     test_java_vue_receipts_match_actual_codegen_agents()
     test_non_auto_directives_include_budgeted_knowledge_context()
     test_non_auto_blocks_at_unmet_prereq()
     test_rerun_is_idempotent_resume()
-    print("OK: runner 自测通过(5 组断言)")
+    test_parallel_wave_codegen_thread_safe()
+    print("OK: runner 自测通过(6 组断言)")
 
 
 if __name__ == "__main__":

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 from typing import List
@@ -38,24 +37,22 @@ def detect() -> List[dict]:
 
 
 def heal(auto_install: bool = False) -> dict:
-    """检测 + 自愈。auto_install=True 时尝试安装(薄封装)。"""
+    """检测 + 给出可行动的安装建议(fail-fast 风格)。
+
+    安全决策:不自动安装。openclaw/agent 场景下 shell=True 执行安装命令是
+    不可控执行面(开源项目危险默认值);缺什么就报什么 + 给出安装命令,
+    由人决定是否执行。保留 auto_install 参数仅为兼容旧签名,恒等于 False。
+    """
     missing = detect()
     if not missing:
-        return {"ok": True, "missing": [], "installed": [], "suggestion": ""}
-    installed = []
-    for dep in missing:
-        if auto_install:
-            try:
-                subprocess.run(dep["install"], shell=True, capture_output=True, timeout=120, check=False)
-                installed.append(dep["name"])
-            except Exception:
-                pass
+        return {"ok": True, "missing": [], "suggestion": "",
+                "install_commands": {}}
     critical_missing = [d for d in missing if d["critical"]]
     return {
         "ok": not critical_missing,
         "missing": missing,
-        "installed": installed,
         "suggestion": "请安装: " + ", ".join(d["name"] for d in missing),
+        "install_commands": {d["name"]: d["install"] for d in missing},
     }
 
 
