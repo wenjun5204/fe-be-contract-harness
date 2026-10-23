@@ -62,6 +62,12 @@ docs(readme): 补 --live 模式说明
 
 常用 type：`feat` / `fix` / `docs` / `refactor` / `test` / `chore`。
 
+## Changelog
+
+用户可感知的变更（新能力 / 行为变化 / 修复）请在 [CHANGELOG.md](CHANGELOG.md) 的
+`Unreleased` 对应小节（Added/Changed/Fixed/Security）补一行，发版时合并为版本号段落。
+纯内部重构、测试补充可不记。
+
 ## 报 Bug
 
 开 Issue 时请附：
