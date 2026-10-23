@@ -316,6 +316,22 @@ def run(
     if not state_file.exists():
         init_state(state_file, _change_id(contract))
 
+    # KPI 观测:契约规模(需求吞吐的分母)——复用已 parse 的模型,零额外计算;
+    # 已存在则不覆盖(重跑 resume 时保持首次口径)
+    state = read_state(state_file)
+    if not state.get("contract_stats"):
+        schemas = contract_model.get("schemas", {})
+        state["contract_stats"] = {
+            "endpoints": len(contract_model.get("endpoints", [])),
+            "schemas": len(schemas),
+            "fields": sum(
+                len(s.get("properties") or []) if isinstance(s, dict) else 0
+                for s in schemas.values()
+            ),
+        }
+        from lib.state_manager import write_state
+        write_state(state_file, state)
+
     events = _EventLog(out_dir=out_dir, change_id=_change_id(contract))
     planned_skips = _planned_skips() if auto else SKIP_STAGES
 
@@ -397,6 +413,7 @@ def run(
                     },
                     receipt=_register(state_file, issue_receipt(sid, _stage_subagents(sid, policy, group), "runner")),
                     checkpoint_decision="approve" if auto else None,
+                    auto_approve=auto,
                     evidence=[{"type": "codegen", "detail": f"{sid}: {', '.join(group)}", "at": _now()}],
                 ),
                 events, sid, "done", f"codegen + G1 门:{', '.join(group)}",
@@ -422,6 +439,7 @@ def run(
                 outputs={"consistency_report": json.dumps(r, ensure_ascii=False)},
                 receipt=_register(state_file, issue_receipt("6", "contract/consistency-checker", "runner")),
                 checkpoint_decision="approve" if auto else None,
+                auto_approve=auto,
                 evidence=[{"type": "consistency", "detail": f"ok={r['ok']}", "at": _now()}],
             ),
             events, "6", "done", f"跨栈一致性: {r['ok']}",
@@ -458,6 +476,7 @@ def run(
             outputs={"delivery_report": f"交付报告(见 summary): {contract.name}"},
             receipt=_register(state_file, issue_receipt("10", "orchestrator/notifier", "runner")),
             checkpoint_decision="approve" if auto else None,
+            auto_approve=auto,
             evidence=[{"type": "delivery", "detail": "runner 汇总", "at": _now()}],
         ),
         events, "10", "done", "交付报告(见 summary)",
@@ -514,8 +533,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(json.dumps(summary(Path(args.state)), ensure_ascii=False, indent=2))
         return 0
     elif args.cmd == "report":
-        from lib.run_report import build_report
-        print(json.dumps(build_report(args.out, Path(args.state)), ensure_ascii=False, indent=2))
+        from lib.run_report import append_metrics, build_report
+        report = build_report(args.out, Path(args.state))
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        append_metrics(args.out, report)  # KPI 趋势埋点(跨 run 基线)
         return 0
     else:
         p.print_help()

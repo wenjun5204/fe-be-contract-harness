@@ -169,13 +169,30 @@ flowchart TB
 
 幂等 resume：重跑时已终态阶段直接 `resume_skip`（codegen 文件不被重写,产物 mtime 不变）。
 
-## 七、观测体系（O1/O2:埋点 → 指标）
+## 七、观测体系（O1/O2:埋点 → 指标 → KPI）
 
 | 层 | 落点 | 内容 |
 |---|---|---|
 | **采集** | `start_stage` 落 `started_at`;checkpoint_pending 落 `checkpoint_pending_at`;`events.jsonl` 每条带 `at`;transcripts 记每轮 tool_calls/nudge/condensed/retry | 全量埋点,崩溃安全 |
 | **计算** | `transition._stage_durations`:execution_seconds(剔除审批等待)与 checkpoint_wait_seconds 单列——审批时长不污染执行时长 | 尽力而为,缺时间戳不报错 |
 | **呈现** | `summary().stage_durations`;`python3 lib/runner.py report --out gen --state state.json` | 阶段耗时/慢点、门控拦截次数、resume_skip、checkpoint revise(人工返工)、LLM 行为指标(turns/nudges/condenser/失败数) |
+
+### KPI 块（可量化收益,report 输出的 `kpi` 字段）
+
+| 指标 | 口径 | 来源 |
+|---|---|---|
+| success_rate | 终态阶段数 / 总阶段数 | state.stages |
+| failure_events / recovered_stages | 失败事件数 / 有 error 记录但最终终态的阶段数(失败后恢复) | events + state |
+| human_interventions | checkpoint 人工 approve(approved_by=user) + revise 数 + 失败事件(需人工 retry) | state.checkpoint 记录 |
+| total_duration_seconds | state created_at → 最后 updated_at 墙钟(含人工等待) | state 时间戳 |
+| requirement_scale | 契约规模:endpoints / schemas / properties 数(run 启动落 `contract_stats`,重跑不覆盖) | parse_contract 复用 |
+| throughput | endpoints / 秒(亚秒级 run 为 None,无意义) | 上两者相除 |
+
+跨 run 趋势:每次 `report` 追加一行 `metrics.jsonl`(change_id + kpi + 时间戳),形成基线;
+采纳率不进核心——产物离开 workdir 后失联,`cli.py drift` 可作间接代理,文档明示。
+
+观测开销:采集已在 transition 顺手完成(~μs 级),KPI 汇总是 report 侧纯读端,
+不在执行热路径——`--auto` 全流程新增成本 < 0.01%。
 
 ## 八、双循环：内循环与外循环
 

@@ -56,10 +56,55 @@ def test_report_degrades_gracefully():
         assert report["llm"]["llm_stages"] == 0
 
 
+def test_kpi_block_and_metrics_trend():
+    """KPI 六项指标口径 + contract_stats 落 state + metrics.jsonl 趋势追加。"""
+    import json
+
+    from lib.run_report import append_metrics
+    from lib.state_manager import read_state
+    with tempfile.TemporaryDirectory() as d:
+        out = Path(d) / "gen"
+        state = Path(d) / "state.json"
+        run(EXAMPLE, out, state, ["node"], auto=True)
+
+        # contract_stats 落 state(需求规模 = 吞吐分母)
+        st = read_state(state)
+        cs = st["contract_stats"]
+        assert cs["endpoints"] == 3 and cs["schemas"] == 2, cs  # petstore: 3 路由 2 模型
+        assert cs["fields"] > 0, cs
+        # 重跑不覆盖首次口径
+        run(EXAMPLE, out, state, ["node"], auto=True)
+        assert read_state(state)["contract_stats"] == cs
+
+        # KPI 块
+        report = build_report(out, state)
+        kpi = report["kpi"]
+        assert kpi["success_rate"] == 1.0, kpi           # 12/12 终态
+        assert kpi["failure_events"] == 0, kpi
+        assert kpi["recovered_stages"] == 0, kpi
+        assert kpi["human_interventions"] == 0, kpi       # --auto 全自动,零人工
+        assert kpi["total_duration_seconds"] is not None and kpi["total_duration_seconds"] >= 0, kpi
+        assert kpi["requirement_scale"] == cs, kpi
+        # throughput = endpoints/秒;亚秒级 run(演示场景)duration 截断为 0 → None,
+        # 真实 run(秒级以上)才有意义
+        if kpi["total_duration_seconds"] and kpi["total_duration_seconds"] > 0:
+            assert kpi["throughput"] is not None and kpi["throughput"] > 0, kpi
+        else:
+            assert kpi["throughput"] is None, kpi
+
+        # metrics.jsonl 趋势:两次 report 两次追加,含 change_id 与 kpi
+        append_metrics(out, report)
+        append_metrics(out, report)
+        lines = [json.loads(x) for x in (out / "metrics.jsonl").read_text().splitlines()]
+        assert len(lines) == 2 and all(ln["change_id"] and "kpi" in ln for ln in lines), lines
+        assert lines[0]["kpi"]["success_rate"] == 1.0, lines[0]
+
+
 def main():
     test_report_after_auto_run()
     test_report_degrades_gracefully()
-    print("OK: run_report 自测通过(2 组断言)")
+    test_kpi_block_and_metrics_trend()
+    print("OK: run_report 自测通过(3 组断言)")
 
 
 if __name__ == "__main__":
