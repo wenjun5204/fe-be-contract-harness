@@ -169,7 +169,15 @@ flowchart TB
 
 幂等 resume：重跑时已终态阶段直接 `resume_skip`（codegen 文件不被重写,产物 mtime 不变）。
 
-## 七、双循环：内循环与外循环
+## 七、观测体系（O1/O2:埋点 → 指标）
+
+| 层 | 落点 | 内容 |
+|---|---|---|
+| **采集** | `start_stage` 落 `started_at`;checkpoint_pending 落 `checkpoint_pending_at`;`events.jsonl` 每条带 `at`;transcripts 记每轮 tool_calls/nudge/condensed/retry | 全量埋点,崩溃安全 |
+| **计算** | `transition._stage_durations`:execution_seconds(剔除审批等待)与 checkpoint_wait_seconds 单列——审批时长不污染执行时长 | 尽力而为,缺时间戳不报错 |
+| **呈现** | `summary().stage_durations`;`python3 lib/runner.py report --out gen --state state.json` | 阶段耗时/慢点、门控拦截次数、resume_skip、checkpoint revise(人工返工)、LLM 行为指标(turns/nudges/condenser/失败数) |
+
+## 八、双循环：内循环与外循环
 
 ```mermaid
 flowchart TB
@@ -215,7 +223,7 @@ flowchart TB
 
 外循环的核心设计约束（与三方分工一致）：**脚本采集、人筛选、脚本重放**——回流数据是模型不可信输入,一律标 `assumption`/日志摘录,升级为可信(`confirmed`/回归 case)必须经人。
 
-## 八、三方职责分工（rocky 原则对照）
+## 九、三方职责分工（rocky 原则对照）
 
 | 角色 | 职责 | harness 落点 |
 |---|---|---|
@@ -223,7 +231,7 @@ flowchart TB
 | **脚本** | 状态校验、契约校验、Hash 校验、API 契约、规则重放、产物完整性 | FSM/G1/跨栈一致性、manifest sha256 + evidence hash 校验、evals 3 case + replay_gates 5 场景 |
 | **用户** | 需求范围、方案选择、发布授权 | mandatory_review(1/2/3/6) + artifact_review(7/8/9/10) checkpoint |
 
-## 九、工具表（tool_registry,8 个）
+## 十、工具表（tool_registry,8 个）
 
 | 工具 | 语义 | 输出保护 |
 |---|---|---|
@@ -238,7 +246,7 @@ flowchart TB
 
 沙箱边界：文件工具限 workdir 内（拒绝 `..`/绝对路径逃逸）；当前无执行类工具（P2-5 沙箱留待执行类工具引入时）。
 
-## 十、CI 防线（每次 push 验证）
+## 十一、CI 防线（每次 push 验证）
 
 ```mermaid
 flowchart LR
@@ -249,7 +257,7 @@ flowchart LR
     RG --> D["端到端 demo"]
 ```
 
-## 十一、设计不变量（贡献者必读,PR 检查项）
+## 十二、设计不变量（贡献者必读,PR 检查项）
 
 1. **终态唯一入口**：任何阶段终态只经 `transition.py`;低层 `set_stage_state` 仅限恢复/调试
 2. **fail-closed**：LLM 阶段不调 `report_outputs` → 永远无法完成;失败路径全部收敛 `fail_stage`(可 retry),无伪完成

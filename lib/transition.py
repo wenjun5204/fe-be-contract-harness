@@ -79,6 +79,40 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _parse_ts(ts: Optional[str]) -> Optional[datetime]:
+    """ISO 8601 Z 字符串 → datetime(观测耗时用);解析失败返回 None 不阻断。"""
+    if not ts:
+        return None
+    try:
+        return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _stage_durations(stage: dict, now: datetime) -> dict:
+    """O1 观测:计算阶段执行/等待耗时(秒)。
+
+    - execution_seconds: started_at → (checkpoint_pending_at 或 completed_at),
+      剔除人工审批等待(checkpoint_wait_seconds 单列)——审批时长不污染执行时长
+    - 全部尽力而为:缺时间戳(旧 state/低层 set_stage_state 路径)不报错
+    """
+    started = _parse_ts(stage.get("started_at"))
+    if not started:
+        return {}
+    out: dict = {}
+    if stage.get("state") in ("completed", "skipped"):
+        end = _parse_ts(stage.get("completed_at"))
+        if end:
+            out["execution_seconds"] = round((end - started).total_seconds(), 1)
+        pending_at = _parse_ts(stage.get("checkpoint_pending_at"))
+        if pending_at and end:
+            out["checkpoint_wait_seconds"] = round((end - pending_at).total_seconds(), 1)
+            if "execution_seconds" in out:
+                out["execution_seconds"] = round(
+                    out["execution_seconds"] - out["checkpoint_wait_seconds"], 1)
+    return out
+
+
 def _stage_states(state: dict) -> Dict[str, str]:
     return {sid: s["state"] for sid, s in state["stages"].items()}
 
@@ -268,6 +302,7 @@ def start_stage(state_file: Path | str, stage_id: str) -> dict:
     if not ok_prereq:
         raise TransitionError(f"阶段 {stage_id} 前置未就绪: {waiting}", [f"prereq_not_ready: {waiting}"])
     state["stages"][stage_id]["state"] = nxt.value
+    state["stages"][stage_id]["started_at"] = _now()  # O1 观测:阶段耗时起点
     state["stages"][stage_id]["updated_at"] = _now()
     state["current_stage"] = stage_id
     write_state(sf, state)
@@ -358,6 +393,7 @@ def complete_stage(
             state["stages"][stage_id]["outputs"] = outputs
             state["stages"][stage_id]["receipt"] = receipt
             state["stages"][stage_id]["evidence"] = evidence
+            state["stages"][stage_id]["checkpoint_pending_at"] = _now()  # O1:审批等待计时起点
             state["stages"][stage_id]["updated_at"] = _now()
             state["current_stage"] = stage_id
             write_state(sf, state)
@@ -396,6 +432,9 @@ def complete_stage(
     state["stages"][stage_id]["evidence"] = evidence
     state["stages"][stage_id]["completed_at"] = _now()
     state["stages"][stage_id]["updated_at"] = _now()
+    # O1 观测:执行耗时(剔除审批等待)与审批等待时长,尽力而为不阻断终态
+    state["stages"][stage_id].update(
+        _stage_durations(state["stages"][stage_id], datetime.now(timezone.utc)))
     state["current_stage"] = stage_id
     write_state(sf, state)
     consume_receipt(sf, stage_id)

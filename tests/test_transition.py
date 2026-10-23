@@ -503,6 +503,41 @@ def test_evidence_hash_integrity():
         assert some_file in r["tampered"], r
 
 
+def test_stage_timing_observability():
+    """O1: started_at 落盘 + 终态带 execution_seconds;checkpoint 等待单列不污染执行时长。"""
+    with tempfile.TemporaryDirectory() as d:
+        sf = _setup(d, "timing")
+        # 无 checkpoint 的 Stage 0:complete 后带 execution_seconds
+        start_stage(sf, "0")
+        r0 = issue_receipt("0", "orchestrator/init", "t0")
+        _reg(sf, r0)
+        res = complete_stage(sf, "0", outputs={"execution_plan": "p"}, receipt=r0)
+        assert res["status"] == "completed"
+        s0 = read_state(sf)["stages"]["0"]
+        assert s0["started_at"], s0
+        assert "execution_seconds" in s0 and s0["execution_seconds"] >= 0, s0
+        # checkpoint 阶段:Stage 1 是全 harness 最重的机验门(复杂度/覆盖/质量/确认
+        # /实体/错误码六项),不适合 timing 测试,用带批准的合法 skip 过掉;
+        # 对 Stage 2(仅 required openapi_contract + mandatory_review)测 pending 计时
+        r1 = issue_receipt("1", "orchestrator/requirements-analyst", "t1")
+        _reg(sf, r1)
+        res = skip_stage(sf, "1", reason="timing 测试", approved_by="user", receipt=r1)
+        assert res["state"] == "skipped", res
+        start_stage(sf, "2")
+        r2 = issue_receipt("2", "contract/contract-designer", "t2")
+        _reg(sf, r2)
+        res = complete_stage(sf, "2", outputs={"openapi_contract": "c"}, receipt=r2)
+        assert res["status"] == "checkpoint_pending"
+        s2 = read_state(sf)["stages"]["2"]
+        assert s2["checkpoint_pending_at"], s2
+        # 复跑 approve:审批等待单列,不污染执行耗时
+        res = complete_stage(sf, "2", receipt=r2, checkpoint_decision="approve")
+        assert res["status"] == "completed"
+        s2 = read_state(sf)["stages"]["2"]
+        assert "checkpoint_wait_seconds" in s2, s2
+        assert 0 <= s2["execution_seconds"] <= s2["checkpoint_wait_seconds"] + 5, s2
+
+
 def main():
     test_start_complete_no_checkpoint()
     test_prereq_blocked()
@@ -520,7 +555,8 @@ def main():
     test_start_returns_discovery_info()
     test_deploy_result_structured_validation()
     test_hint_navigation()
-    print("OK: transition 闭环自测通过(15 组断言)")
+    test_stage_timing_observability()
+    print("OK: transition 闭环自测通过(16 组断言)")
 
 
 if __name__ == "__main__":

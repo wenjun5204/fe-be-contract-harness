@@ -41,6 +41,8 @@ echo "==> eval 评测..."
 python3 evals/run_evals.py | tail -1
 echo "==> 门控行为回放评测..."
 python3 evals/replay_gates.py | tail -1
+echo "==> run_report 观测聚合自测..."
+python3 tests/test_run_report.py
 echo "==> requirements_spec 自测..."
 python3 tests/test_requirements_spec.py
 echo "==> domain_knowledge 自测..."

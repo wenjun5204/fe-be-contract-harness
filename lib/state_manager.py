@@ -141,6 +141,12 @@ def summary(state_file: Path) -> dict:
     st = _stage_states(state)
     total = len(state["stages"])
     done = sum(1 for s in st.values() if s in TERMINAL)
+    # O1 观测:已终态阶段的执行耗时(秒);无时间戳的旧 state/低层路径不列出
+    durations = {
+        sid: s.get("execution_seconds")
+        for sid, s in state["stages"].items()
+        if s.get("execution_seconds") is not None
+    }
     return {
         "change_id": state["change_id"],
         "total": total,
@@ -148,6 +154,7 @@ def summary(state_file: Path) -> dict:
         "running": [sid for sid, s in st.items() if s == "running"],
         "failed": [sid for sid, s in st.items() if s == "failed"],
         "actionable": actionable_stages(state_file),
+        "stage_durations": durations,
     }
 
 

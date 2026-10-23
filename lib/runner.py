@@ -494,6 +494,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     s = sub.add_parser("status", help="查看状态")
     s.add_argument("--state", default="state.json")
 
+    rep = sub.add_parser("report", help="run 观测报告(阶段耗时/门控拦截/LLM 行为/人工返工)")
+    rep.add_argument("--out", default="gen", help="生成目录(events.jsonl 所在)")
+    rep.add_argument("--state", default="state.json")
+
     args = p.parse_args(argv)
 
     if args.cmd == "run":
@@ -508,6 +512,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
     elif args.cmd == "status":
         print(json.dumps(summary(Path(args.state)), ensure_ascii=False, indent=2))
+        return 0
+    elif args.cmd == "report":
+        from lib.run_report import build_report
+        print(json.dumps(build_report(args.out, Path(args.state)), ensure_ascii=False, indent=2))
         return 0
     else:
         p.print_help()
