@@ -1,5 +1,9 @@
 # fe-be-contract-harness
 
+[![CI](https://github.com/wenjun5204/fe-be-contract-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/wenjun5204/fe-be-contract-harness/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+
 **[English](#english) | [中文](#它解决什么问题)**
 
 一个面向前后端协作的**契约驱动 SDLC Harness**。它以 OpenAPI 3.x 为前后端接口的唯一事实源（SSOT），把需求、契约、代码生成、质量校验、人工确认和交付串成一条可验证、可恢复的工作流。
@@ -29,6 +33,8 @@ pip install -r requirements.txt
 npm run demo          # end-to-end demo in a temp dir
 npm test              # full deterministic smoke tests
 ```
+
+👉 **Full English documentation: [docs/README.en.md](docs/README.en.md)** — concepts, workflow, `--live` mode, harness maturity, and boundaries.
 
 See the Chinese sections below for the complete documentation (workflow, commands, knowledge bases, gates, and current boundaries).
 
