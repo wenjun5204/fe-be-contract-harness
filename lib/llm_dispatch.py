@@ -24,6 +24,7 @@ fail-closed 语义(与既有门控完全一致,不新增旁路):
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
@@ -104,6 +105,33 @@ def build_system_prompt(directive: dict, required_outputs: List[str]) -> str:
 # 单条历史教训的注入截断(防注入面 + 控制上下文)
 LESSON_MAX_CHARS = 200
 LESSON_TOP_K = 3
+
+# E1 评测采集目录(外循环评测回流):失败 transcript 的采集池。
+# 永不被 CI 消费——人筛选后浓缩成 replay_gates 场景才算沉淀。
+REGRESSIONS_DIR = Path(__file__).resolve().parent.parent / "evals" / "regressions"
+
+
+def _persist_regression(stage: str, reason: str, transcript: List[dict], tool_call_count: int) -> Path:
+    """失败 transcript 落盘为待筛选的回归素材(E1 评测采集)。
+
+    文件名: <UTC时间戳>-stage<sid>-<原因摘要>.json,内容与 transcripts/ 一致。
+    写入 REGRESSIONS_DIR/.pending/(目录级 gitignore);筛选后的沉淀品移到
+    evals/cases/ 或凝成 replay_gates 场景由人决定。
+    """
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    slug = re.sub(r"[^\w-]", "-", reason)[:40].strip("-") or "unknown"
+    out_dir = REGRESSIONS_DIR / ".pending"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{stamp}-stage{stage}-{slug}.json"
+    path.write_text(json.dumps({
+        "collected_at": stamp,
+        "stage": stage,
+        "reason": reason,
+        "tool_call_count": tool_call_count,
+        "transcript": transcript,
+        "note": "E1 采集素材,未筛选。浓缩为 replay_gates 场景或 evals case 后可删除本文件。",
+    }, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    return path
 
 # P1-1 确定性 condenser:上下文体积保护
 CONDENSER_TRIGGER_CHARS = 60_000   # messages 总字符超过该值时触发压缩(~15k token)
@@ -230,6 +258,13 @@ def run_llm_stage(
                 source="llm_dispatch",
             )
         except Exception:  # noqa: BLE001 —— 经验落盘失败不影响主流程
+            pass
+        # E1 评测采集(外循环):失败 transcript 落盘到 evals/regressions/,
+        # 供人工筛选后浓缩为 replay_gates 场景/evals case(脚本采集、人筛选、脚本重放)。
+        # 采集文件本身不进 CI;目录 .gitignore 掉运行噪音,README 说明筛选流程。
+        try:
+            _persist_regression(stage, reason, transcript, tool_call_count)
+        except Exception:  # noqa: BLE001 —— 采集失败不影响主流程
             pass
         return {
             "ok": False, "stage": stage, "status": "failed",

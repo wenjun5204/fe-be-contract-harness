@@ -233,6 +233,33 @@ def test_failure_writes_experience():
             exp.EXPERIENCE_DIR = backup
 
 
+def test_failure_collects_regression_material():
+    """E1 评测采集:失败 transcript 落盘 .pending/,文件名含 stage 与原因摘要。"""
+    import lib.llm_dispatch as dispatch
+    with tempfile.TemporaryDirectory() as d:
+        # 采集目录指到临时目录,避免污染仓库 evals/regressions/.pending
+        backup = dispatch.REGRESSIONS_DIR
+        dispatch.REGRESSIONS_DIR = Path(d) / "regressions"
+        try:
+            sf = _state_with_prereqs(d)
+            script = [
+                {"content": "我分析了契约,工作已完成"},
+                {"content": "我认为不需要调用工具"},
+            ]
+            res = run_llm_stage(_directive(), sf, client=MockLLMClient(script),
+                                contract_path=CONTRACT, workdir=d, auto_approve=True)
+            assert not res["ok"], res
+            pending = dispatch.REGRESSIONS_DIR / ".pending"
+            files = list(pending.glob("*.json"))
+            assert len(files) == 1, files
+            import json as _json
+            data = _json.loads(files[0].read_text(encoding="utf-8"))
+            assert data["stage"] == "8" and "空转" in data["reason"], data
+            assert "stage8" in files[0].name and "未筛选" in data["note"], files[0].name
+        finally:
+            dispatch.REGRESSIONS_DIR = backup
+
+
 def test_pruned_sections_hint_pull_channel():
     """P1-3: 预算裁掉的 section 在 user 消息中提示用 query_knowledge 拉取(推拉协作)。"""
     with tempfile.TemporaryDirectory() as d:
@@ -325,10 +352,11 @@ def main():
     test_transient_llm_error_retried()
     test_final_nudge_saves_max_turns_run()
     test_failure_writes_experience()
+    test_failure_collects_regression_material()
     test_pruned_sections_hint_pull_channel()
     test_experience_read_side_injects_lessons()
     test_condenser_elides_old_tool_results()
-    print("OK: llm_dispatch 自测通过(13 组断言)")
+    print("OK: llm_dispatch 自测通过(14 组断言)")
 
 
 if __name__ == "__main__":

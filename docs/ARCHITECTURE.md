@@ -169,7 +169,53 @@ flowchart TB
 
 幂等 resume：重跑时已终态阶段直接 `resume_skip`（codegen 文件不被重写,产物 mtime 不变）。
 
-## 七、三方职责分工（rocky 原则对照）
+## 七、双循环：内循环与外循环
+
+```mermaid
+flowchart TB
+    subgraph OUTER["外循环(跨 run,天/周级):项目进化"]
+        REQ["需求/契约"] --> RUN["一次 run"] --> DEL["交付"]
+        DEL --> RETRO["复盘沉淀"]
+        RETRO -->|"E4 交付复盘:<br/>checkpoint revise 数/失败重试数"--> EXP["经验库"]
+        RETRO -->|"E1 评测采集:<br/>失败 transcript → regressions/"--> EVAL["evals/评测集"]
+        RETRO -->|"E2 漂移回流:<br/>drift → assumption 条目"--> KB["知识库"]
+        EVAL -->|"CI 重放保底"--> REQ
+        EXP -->|"Stage 启动注入"--> RUN
+        KB -->|"dispatch context 推送"--> RUN
+    end
+
+    subgraph INNER["内循环(单 run 内,分钟级):阶段推进"]
+        DIR["directive"] --> TC["tool calling<br/>自纠错循环"] --> RO["report_outputs"]
+        TC -->|"ok=false 自纠错 / nudge×2 / final-nudge<br/>condenser / smart_retry(共 12 轮上限)"| TC
+        RO --> GATE["transition 门控"] -->|"过门"| DONE["终态"]
+        TC -->|"耗尽"| FAIL["fail_stage → failed"]
+        FAIL -.->|"写 error 经验"|-.- RETRO
+    end
+```
+
+### 内循环（阶段内不放弃、不越权）——已成型,不再加机制
+
+| 机制 | 位置 | 作用 |
+|---|---|---|
+| 工具自纠错 | tool_registry（异常收敛 `ok=false` 回模型） | 错误信息可行动(ACI) |
+| nudge 二段式 | llm_dispatch（空转一次提醒、二次判负） | 防无限空转 |
+| final-nudge | 最后一轮注入"立即 report_outputs" | 给收束出口,不加轮次 |
+| condenser | 超 60k 空洞化旧 tool result | 长对话不失忆,wire 格式不破 |
+| smart_retry | 瞬时错误退避×2,永久错误零重试 | 网络抖动自愈 |
+| max_turns=12 | 耗尽即 failed(fail-closed) | 内循环的天花板,刻意保留 |
+
+### 外循环（项目越跑越聪明）——三条回流管,现状与补齐
+
+| 回流路径 | 写侧 | 读侧 | 闭环状态 |
+|---|---|---|---|
+| 经验闭环 | ✅ 失败写 `config/experience/error/` | ✅ 同阶段启动注入 top-3(标注日志摘录防注入) | ✅ 已合龙(P1-2+P1-5) |
+| 评测闭环 | ⚠️ replay_gates 5 场景手写;**E1: 失败 transcript 自动采集到 `evals/regressions/`** | ✅ CI 每次重放 | E1 补采集,人筛选沉淀 |
+| 知识库闭环 | ❌ run 中发现的业务规则不回流;**E2: drift 检出自动写 assumption 条目;E3: confirm 流转工具挂 checkpoint** | ✅ dispatch context 推送 | E2/E3 待做(待真实数据) |
+| 交付复盘 | ❌ Stage 10 硬编码字符串;**E4: 汇总 run 指标写 delivery 经验** | ✅ Stage 3 可检索 | E4 待做(需跨项目数据) |
+
+外循环的核心设计约束（与三方分工一致）：**脚本采集、人筛选、脚本重放**——回流数据是模型不可信输入,一律标 `assumption`/日志摘录,升级为可信(`confirmed`/回归 case)必须经人。
+
+## 八、三方职责分工（rocky 原则对照）
 
 | 角色 | 职责 | harness 落点 |
 |---|---|---|
@@ -177,7 +223,7 @@ flowchart TB
 | **脚本** | 状态校验、契约校验、Hash 校验、API 契约、规则重放、产物完整性 | FSM/G1/跨栈一致性、manifest sha256 + evidence hash 校验、evals 3 case + replay_gates 5 场景 |
 | **用户** | 需求范围、方案选择、发布授权 | mandatory_review(1/2/3/6) + artifact_review(7/8/9/10) checkpoint |
 
-## 八、工具表（tool_registry,8 个）
+## 九、工具表（tool_registry,8 个）
 
 | 工具 | 语义 | 输出保护 |
 |---|---|---|
@@ -192,7 +238,7 @@ flowchart TB
 
 沙箱边界：文件工具限 workdir 内（拒绝 `..`/绝对路径逃逸）；当前无执行类工具（P2-5 沙箱留待执行类工具引入时）。
 
-## 九、CI 防线（每次 push 验证）
+## 十、CI 防线（每次 push 验证）
 
 ```mermaid
 flowchart LR
@@ -203,7 +249,7 @@ flowchart LR
     RG --> D["端到端 demo"]
 ```
 
-## 十、设计不变量（贡献者必读,PR 检查项）
+## 十一、设计不变量（贡献者必读,PR 检查项）
 
 1. **终态唯一入口**：任何阶段终态只经 `transition.py`;低层 `set_stage_state` 仅限恢复/调试
 2. **fail-closed**：LLM 阶段不调 `report_outputs` → 永远无法完成;失败路径全部收敛 `fail_stage`(可 retry),无伪完成

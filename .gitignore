@@ -25,3 +25,4 @@ state.json
 .tmp/
 tmp/
 config/experience/
+evals/regressions/.pending/
