@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-23
+
 ### Added
 - **观测体系（O1/O2）**：stage timing（`started_at`/`checkpoint_pending_at` 落盘，终态计算 `execution_seconds`——**剔除人工审批等待**，`checkpoint_wait_seconds` 单列）；`summary()` 输出 `stage_durations`；`runner report` 子命令聚合 events.jsonl + state.json 输出阶段耗时/慢点/门控拦截/LLM 行为指标。
 - **KPI 可量化收益**：`report` 输出六项指标——success_rate、failure_events/recovered_stages、human_interventions、total_duration_seconds、requirement_scale（`contract_stats` 落 state，重跑不覆盖首次口径）、throughput；每次 report 追加 `metrics.jsonl` 形成跨 run 基线。
@@ -69,6 +71,7 @@
 
 ---
 
-[Unreleased]: https://github.com/wenjun5204/fe-be-contract-harness/compare/v0.1.0...main
+[Unreleased]: https://github.com/wenjun5204/fe-be-contract-harness/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/wenjun5204/fe-be-contract-harness/compare/v0.1.0...v0.2.0
 [0.1.1]: https://github.com/wenjun5204/fe-be-contract-harness/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/wenjun5204/fe-be-contract-harness/releases/tag/v0.1.0
