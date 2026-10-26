@@ -54,7 +54,7 @@ See the Chinese sections below for the complete documentation (workflow, command
 - [测试与目录结构](#测试与目录结构)
 - [当前边界](#当前边界)
 
-> 📐 工程化设计架构（分层/数据流/门控链/--live 主循环/设计不变量）见 **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**；改造路线图与进度见 [HARNESS_UPGRADE.md](HARNESS_UPGRADE.md)；版本变更见 [CHANGELOG.md](CHANGELOG.md)。
+> 📐 工程化设计架构（分层/数据流/门控链/--live 主循环/设计不变量）见 **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**；能力地图与完成度见 [docs/CAPABILITIES.md](docs/CAPABILITIES.md)；改造路线图与进度见 [HARNESS_UPGRADE.md](HARNESS_UPGRADE.md)；版本变更见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
