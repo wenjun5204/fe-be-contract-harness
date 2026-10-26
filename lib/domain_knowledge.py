@@ -196,6 +196,40 @@ def seed(domain: str, name: str, content: str, root: Optional[Path] = None) -> P
     }, root=root, mode="create")
 
 
+def confirm_entry(domain: str, entry_id: str, confirmed_by: str, root: Optional[Path] = None) -> dict:
+    """E3 知识确认流转:assumption → confirmed 的人工升级(带审计字段)。
+
+    三方分工的"用户"侧落地:AI 推断写 assumption(E2 回流),人核对后经本函数
+    升级为 confirmed,记录 confirmed_by/confirmed_at——知识可信层只经人工。
+    fail-closed:
+    - 只允许 assumption → confirmed(confirmed/deprecated 不动,防误改已定知识)
+    - confirmed_by 必填(审计可追溯)
+    - 与已确认知识冲突仍被 write_entry 的 find_conflicts 拦截(replace 也拦)
+    """
+    path = _entry_path(domain, entry_id, root)
+    if not path.is_file():
+        raise FileNotFoundError(f"知识条目不存在: {path}")
+    entry = _parse_entry(path)
+    if entry.get("legacy"):
+        raise ValueError("旧版无 Schema 条目不可 confirm,请先迁移(frontmatter 化)")
+    current = entry.get("status")
+    if current == "confirmed":
+        raise ValueError(f"条目已是 confirmed(勿重复确认): {path}")
+    if current == "deprecated":
+        raise ValueError(f"条目已 deprecated,不可直接 confirm(先恢复再确认): {path}")
+    entry["status"] = "confirmed"
+    entry["confirmed_by"] = confirmed_by
+    entry["confirmed_at"] = _now()
+    # 确认动作把责任转到人:source 标记确认前来源,防"AI 推断直接 confirmed"的
+    # validate_entry 校验拒绝合法 confirm 流程(可追溯原始来源,又不违可信层纪律)
+    original_source = entry.get("source", "unknown")
+    entry["source"] = f"user_confirmed_from_{original_source}"
+    # mode=replace 覆盖落盘;冲突校验对 confirmed 条目依然生效(find_conflicts 只比 confirmed)
+    write_entry(entry, root=root, mode="replace")
+    return {"ok": True, "id": entry_id, "domain": domain, "status": "confirmed",
+            "confirmed_by": confirmed_by, "confirmed_at": entry["confirmed_at"], "file": str(path)}
+
+
 def search(query: str, domain: Optional[str] = None, root: Optional[Path] = None) -> List[dict]:
     """跨知识正文和元数据检索，返回命中的文件与行信息。"""
     hits = []
@@ -295,6 +329,10 @@ def main(argv=None) -> int:
     create_parser.add_argument("--states", default="[]")
     create_parser.add_argument("--error-codes", default="[]")
     create_parser.add_argument("--mode", choices=("create", "merge", "replace"), default="create")
+    confirm_parser = sub.add_parser("confirm", help="assumption → confirmed 人工确认(记录确认人)")
+    confirm_parser.add_argument("domain")
+    confirm_parser.add_argument("id")
+    confirm_parser.add_argument("--by", required=True, help="确认人标识(审计落盘)")
     sub.add_parser("domains", help="列出方向")
     args = parser.parse_args(argv)
     try:
@@ -316,6 +354,8 @@ def main(argv=None) -> int:
             result = {"ok": True, "file": str(write_entry(entry, mode=args.mode))}
         elif args.cmd == "domains":
             result = list_domains()
+        elif args.cmd == "confirm":
+            result = confirm_entry(args.domain, args.id, args.by)
         else:
             parser.print_help()
             return 1

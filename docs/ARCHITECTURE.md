@@ -242,7 +242,7 @@ flowchart TB
 |---|---|---|---|
 | 经验闭环 | ✅ 失败写 `config/experience/error/` | ✅ 同阶段启动注入 top-3(标注日志摘录防注入) | ✅ 已合龙(P1-2+P1-5) |
 | 评测闭环 | ✅ replay_gates 5 场景 + **E1 采集已落地**:失败 transcript 自动落 `evals/regressions/.pending/`(gitignore,不入 CI) | ✅ CI 每次重放 | ⚠️ 采集闭环,人筛选待真实失败素材 |
-| 知识库闭环 | ❌ run 中发现的业务规则不回流;**E2: drift 检出自动写 assumption 条目;E3: confirm 流转工具挂 checkpoint** | ✅ dispatch context 推送 | E2/E3 待做(待真实数据) |
+| 知识库闭环 | ✅ E2: drift 检出自动写 assumption 条目(幂等);E3: `confirm` CLI 人工升级 confirmed(审计字段) | ✅ dispatch context 推送 | ✅ 已合龙;蒸馏提炼(从 run 素材产新知识)待真实数据 |
 | 交付复盘 | ❌ Stage 10 硬编码字符串;**E4: 汇总 run 指标写 delivery 经验** | ✅ Stage 3 可检索 | E4 待做(需跨项目数据) |
 
 外循环的核心设计约束（与三方分工一致）：**脚本采集、人筛选、脚本重放**——回流数据是模型不可信输入,一律标 `assumption`/日志摘录,升级为可信(`confirmed`/回归 case)必须经人。

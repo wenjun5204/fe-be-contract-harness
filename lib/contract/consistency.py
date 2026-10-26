@@ -51,7 +51,13 @@ def cross_stack_check(contract_path: str | Path, stacks: Optional[List[str]] = N
 
 
 def drift_check(contract_path: str | Path, stack: str, gen_dir: str | Path) -> dict:
-    """漂移检测:重生成期望产物,与磁盘上已有 codegen-manifest.json 对比。"""
+    """漂移检测:重生成期望产物,与磁盘上已有 codegen-manifest.json 对比。
+
+    E2 知识回流:检出真实漂移(非"缺 manifest")时自动写一条 backend assumption
+    条目——下次同栈阶段的 dispatch context 可见"上次漂移记录"。AI 推断一律
+    assumption,升级 confirmed 必须人经 confirm_entry(三方分工)。
+    落库失败不影响检测结果(回流是旁路,不阻断主流程)。
+    """
     model = parse_contract(contract_path)
     adapter = get_adapter(stack)
     expected = {f.path: f.content for f in adapter.generate(model)}
@@ -68,10 +74,38 @@ def drift_check(contract_path: str | Path, stack: str, gen_dir: str | Path) -> d
     on_disk = json.loads(manifest_path.read_text(encoding="utf-8"))
     routes_drift = set(on_disk.get("routes", [])) != set(expected_manifest["routes"])
     models_drift = set(on_disk.get("models", [])) != set(expected_manifest["models"])
-    return {
+    result = {
         "ok": not (routes_drift or models_drift),
         "routes_drift": routes_drift,
         "models_drift": models_drift,
         "expected_routes": expected_manifest["routes"],
         "on_disk_routes": on_disk.get("routes", []),
     }
+    if routes_drift or models_drift:
+        try:
+            from lib.domain_knowledge import write_entry
+            payload = {
+                "id": f"drift-{stack}-{Path(contract_path).stem}",
+                "domain": "backend",
+                "entity": "CodegenDrift",
+                "type": "convention",
+                "status": "assumption",
+                "source": "drift_check",
+                "fields": [],
+                "states": [],
+                "error_codes": [],
+                "content": (
+                    f"契约漂移记录({stack} 栈,契约 {Path(contract_path).name}):"
+                    f"routes_drift={routes_drift}, models_drift={models_drift}。"
+                    f"期望路由 {sorted(expected_manifest['routes'])} vs "
+                    f"磁盘 {sorted(on_disk.get('routes', []))}。"
+                    "生成产物与最新契约不一致,重新生成或人工核对差异后经 confirm 确认处理结论。"
+                ),
+            }
+            # 幂等:同 id 重复检出覆盖更新(assumption 内容是最新漂移状态,无历史价值;
+            # find_conflicts 防线只对 confirmed 生效,assumption 覆盖不越权)
+            write_entry(payload, mode="replace")
+            result["knowledge_feedback"] = "assumption 条目已落库(待人工 confirm)"
+        except Exception as e:  # noqa: BLE001 —— 回流旁路,失败不阻断检测
+            result["knowledge_feedback"] = f"回流失败(不影响检测): {e}"
+    return result

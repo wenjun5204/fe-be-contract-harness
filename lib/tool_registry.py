@@ -6,7 +6,8 @@
 - execute_tool 做参数校验(required/type);执行器异常不炸主循环,统一返回
   {"ok": False, "error": ...} 让模型自纠错
 - read_file / write_file 限定在 workspace 根内(拒绝 .. 与越界绝对路径),
-  防止 Agent 越界读写
+  防止 Agent 越界读写;契约/生成目录类任务输入路径经 _safe_task_path 拦截
+  注入形态(.. 逃逸段/空字节/shell 元字符),任务资产允许在 workspace 外
 - report_outputs 是阶段收尾工具:主循环捕获其参数作为 complete_stage 的
   structured outputs(fail-closed:不调用即无法过门)
 
@@ -137,10 +138,33 @@ def safe_join(workdir: Path, rel_path: str) -> Path:
 
 # ---- 内置工具执行器 ----
 
+def _safe_task_path(raw: str) -> str:
+    """任务输入路径(契约/生成目录)的安全检查。
+
+    与 read_file/write_file 的 workdir 硬边界不同:任务输入是用户指定的资产,
+    允许在 workdir 外(契约可以在任何地方)。但要拦截路径注入攻击形态:
+    - .. 逃逸段(相对路径穿越)
+    - 空字节/换行(截断与参数注入)
+    - ~/$(反引号等 shell 注入残留(本工具不跑 shell,但防上游误传)
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        raise ToolError(f"非法路径: {raw!r}")
+    if "\x00" in raw or "\n" in raw:
+        raise ToolError("路径含空字节/换行(疑似注入)")
+    for seg in ("$(", "`"):
+        if seg in raw:
+            raise ToolError(f"路径含 shell 元字符(疑似注入): {raw}")
+    parts = Path(raw).parts
+    if ".." in parts:
+        raise ToolError(f"路径含 .. 逃逸段(疑似注入): {raw}")
+    return raw
+
+
 def _read_contract_fn(contract_path: Optional[str], args: dict) -> dict:
     path = args.get("path") or contract_path
     if not path:
         raise ToolError("未提供契约路径(构造工具时未绑定 contract,且参数缺 path)")
+    path = _safe_task_path(path)
     model = parse_contract(Path(path))
     schemas = model.get("schemas", {})
     return {
@@ -160,13 +184,15 @@ def _read_contract_fn(contract_path: Optional[str], args: dict) -> dict:
 
 def _verify_codegen_fn(args: dict) -> dict:
     from lib.contract.verify import verify
-    report = verify(Path(args["contract"]), args["stack"], Path(args["out_dir"]))
+    contract = _safe_task_path(args["contract"])
+    out_dir = _safe_task_path(args["out_dir"])
+    report = verify(Path(contract), args["stack"], Path(out_dir))
     return {"ok": True, "stack": args["stack"], "report": report}
 
 
 def _consistency_check_fn(args: dict) -> dict:
     from lib.contract.consistency import cross_stack_check
-    report = cross_stack_check(Path(args["contract"]))
+    report = cross_stack_check(Path(_safe_task_path(args["contract"])))
     report["ok"] = report.get("ok", True)
     return report
 

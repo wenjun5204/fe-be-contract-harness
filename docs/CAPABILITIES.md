@@ -31,7 +31,7 @@
 | 能力 | 说明 | 完成度 | 落点 |
 |---|---|---|---|
 | 工具注册表 + 参数校验 | 工具是显式清单,不是任意 shell | ✅ | `tool_registry`(8 工具 + schema 校验) |
-| 工具沙箱边界 | 读写限制工作区内,防越界 | ⚠️ | read/write_file 有 `safe_join`;`verify_codegen`/`read_contract` 的 path 参数未校验 |
+| 工具沙箱边界 | 读写限制工作区内,防越界 | ✅ | read/write_file 有 `safe_join`;任务输入路径经 `_safe_task_path` 拦注入形态(..逃逸/空字节/shell 元字符) |
 | 执行类工具隔离 | 跑测试/构建需白名单+超时+输出截断 | ❌ | 当前 8 工具全是读/检索类;引入执行类前必须先做(P2-5) |
 | ACI 输出纪律 | 工具输出紧凑、错误信息可行动 | ✅ | read_file 翻页/截断、query_symbols top-20 |
 
@@ -53,7 +53,7 @@
 | 领域知识注入 | 按阶段/实体推送业务规则 | ✅ | dispatch context(推) |
 | 按需检索 | Agent 主动查,而非全量塞 | ✅ | query_knowledge/query_symbols(拉)+ 裁剪提示(协作) |
 | 知识可信度分级 | AI 推断不污染已确认层 | ✅ | assumption/confirmed 状态机,写侧校验拦截 |
-| 知识回流 | run 中学到的写回知识库,越用越厚 | ⚠️ | 管道零件齐(`write_entry` 零调用方),即外循环 E2/E3 |
+| 知识回流 | run 中学到的写回知识库,越用越厚 | ✅ | E2: drift 检出自动写 assumption(幂等);E3: `confirm` CLI 人工升级(带审计字段,source 转 user_confirmed_from_*) |
 | 仓库上下文 | 目标仓库技术栈/约定 | ✅ | `repo_knowledge` |
 
 ## 第 6 层：观测与可审计
@@ -89,8 +89,8 @@
 ## 总览：按完备度排序
 
 ```text
-已过硬(可当卖点):   状态门控层(含 DAG 驱动编排)、信任链、LLM 内循环、观测体系、回归防线
-半成品(零件在待接线): 工具沙箱全覆盖、知识回流、跨run对比、平台验证、PyPI
+已过硬(可当卖点):   状态门控层(含 DAG 驱动编排)、信任链、工具沙箱、LLM 内循环、观测体系、回归防线、知识回流
+半成品(零件在待接线): 跨run对比、平台验证、PyPI
 缺口(需要时再做):     执行类工具+沙箱(P2-5)、LLM 摘要 condenser(P2-1)
 ```
 

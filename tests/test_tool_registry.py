@@ -32,6 +32,25 @@ def test_schemas_format():
             "report_outputs"} == names
 
 
+def test_task_path_injection_blocked():
+    """A 沙箱补全:任务输入路径拦截注入形态;合法 workdir 外绝对路径放行。"""
+    tools = build_default_tools(CONTRACT)
+    # .. 逃逸段
+    for bad in ["../../etc/passwd", "a/../../secrets.yaml", "x\u0000.yaml",
+                "contract.yaml\u0000", "$(cat /etc/passwd)", "`rm -rf`"]:
+        if "\u0000" in bad:
+            bad = bad.replace("\u0000", "\x00")
+        res = tools.execute("read_contract", {"path": bad})
+        assert not res["ok"] and ("注入" in res["error"] or "非法" in res["error"]), (bad, res)
+    # verify_codegen 的 contract/out_dir 同样拦截
+    res = tools.execute("verify_codegen",
+                        {"contract": "../../etc/passwd", "stack": "node", "out_dir": "gen"})
+    assert not res["ok"] and "注入" in res["error"], res
+    # 合法绝对路径(契约可放 workdir 外)放行——不存在的文件报解析错误而非注入拦截
+    res = tools.execute("read_contract", {"path": "/tmp/nonexistent-contract.yaml"})
+    assert not res["ok"] and "不存在" in res["error"] and "注入" not in res["error"], res
+
+
 def test_query_symbols_and_read_file_paging():
     """P1-4: query_symbols 结构化检索 + read_file 翻页/截断提示(ACI 紧凑化)。"""
     with tempfile.TemporaryDirectory() as d:
@@ -161,12 +180,13 @@ def main():
     test_execute_read_contract()
     test_args_validation()
     test_query_knowledge()
+    test_task_path_injection_blocked()
     test_query_symbols_and_read_file_paging()
     test_file_tools_and_path_safety()
     test_safe_join_units()
     test_report_outputs_terminal()
     test_custom_registry()
-    print("OK: tool_registry 自测通过(9 组断言)")
+    print("OK: tool_registry 自测通过(10 组断言)")
 
 
 if __name__ == "__main__":

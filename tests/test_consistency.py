@@ -49,11 +49,49 @@ def test_drift_check():
         assert not r["ok"] and r["routes_drift"], r
 
 
+def test_drift_writes_assumption_feedback():
+    """E2 知识回流:真实漂移 → backend assumption 条目落库;无漂移/缺 manifest 不写。"""
+    import lib.domain_knowledge as dk
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d) / "kb"
+        backup = dk.KB_DIR
+        dk.KB_DIR = root  # 知识库根指到临时目录,不污染 config/
+        try:
+            write_out(EXAMPLE, "node", d)
+            # 无漂移 → 不写
+            r = drift_check(EXAMPLE, "node", d)
+            assert r["ok"] and "knowledge_feedback" not in r, r
+            # 真实漂移 → assumption 落库
+            mp = Path(d) / "codegen-manifest.json"
+            data = json.loads(mp.read_text(encoding="utf-8"))
+            data["routes"] = ["only_one_route"]
+            mp.write_text(json.dumps(data), encoding="utf-8")
+            r = drift_check(EXAMPLE, "node", d)
+            assert not r["ok"] and "已落库" in r["knowledge_feedback"], r
+            entries = [e for e in dk.load_entries("backend", root)
+                       if e["id"] == "drift-node-petstore"]
+            assert entries and entries[0]["status"] == "assumption", entries
+            assert entries[0]["source"] == "drift_check"
+            assert "routes_drift=True" in entries[0]["content"]
+            # 同 id 重复检出 → 幂等覆盖,不报错
+            r = drift_check(EXAMPLE, "node", d)
+            assert not r["ok"] and "已落库" in r["knowledge_feedback"], r
+            assert len([e for e in dk.load_entries("backend", root)
+                        if e["id"] == "drift-node-petstore"]) == 1
+            # 缺 manifest → 不写回流(缺生成物不是知识,是噪音)
+            mp.unlink()
+            r = drift_check(EXAMPLE, "node", d)
+            assert not r["ok"] and "缺少" in r.get("reason", ""), r
+        finally:
+            dk.KB_DIR = backup
+
+
 def main():
     test_manifest_coverage()
     test_cross_stack()
     test_drift_check()
-    print("OK: consistency 自测通过(3 组断言)")
+    test_drift_writes_assumption_feedback()
+    print("OK: consistency 自测通过(4 组断言)")
 
 
 if __name__ == "__main__":
