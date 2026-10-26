@@ -54,7 +54,10 @@ flowchart TB
         Transcripts["transcripts/<br/>(--live trajectory)"]
     end
 
+    RunReport["run_report.py<br/>观测消费端:<br/>report 聚合 + KPI + metrics.jsonl"]
+
     CLI --> Runner
+    CLI --> RunReport
     Hooks --> Transition
     Skills --> Runner
     Runner --> PWS --> Dispatch
@@ -76,6 +79,8 @@ flowchart TB
     Transition --> State
     Runner -->|"每条事件即时落盘"| Events
     Dispatch --> Transcripts
+    RunReport -->|"读端聚合(不在热路径)"| State
+    RunReport --> Events
 ```
 
 ## 二、12 阶段工作流与波次
@@ -122,6 +127,8 @@ flowchart TB
 ```
 
 并发保护：五个迁移入口 + `register_receipt` 共持模块级 RLock，read→modify→write 全程串行（5A/5B 并行下的正确性基础）。
+
+checkpoint 审计口径：`approved_by` 如实区分 `auto`/`user`——自动批准必须标 auto（v0.2.0 修复了显式传 decision 时误标 user 导致 KPI 人工介入数虚报的问题），KPI 的 human_interventions 依赖此字段。
 
 ## 四、--live 主循环（llm_dispatch）
 
@@ -234,7 +241,7 @@ flowchart TB
 | 回流路径 | 写侧 | 读侧 | 闭环状态 |
 |---|---|---|---|
 | 经验闭环 | ✅ 失败写 `config/experience/error/` | ✅ 同阶段启动注入 top-3(标注日志摘录防注入) | ✅ 已合龙(P1-2+P1-5) |
-| 评测闭环 | ⚠️ replay_gates 5 场景手写;**E1: 失败 transcript 自动采集到 `evals/regressions/`** | ✅ CI 每次重放 | E1 补采集,人筛选沉淀 |
+| 评测闭环 | ✅ replay_gates 5 场景 + **E1 采集已落地**:失败 transcript 自动落 `evals/regressions/.pending/`(gitignore,不入 CI) | ✅ CI 每次重放 | ⚠️ 采集闭环,人筛选待真实失败素材 |
 | 知识库闭环 | ❌ run 中发现的业务规则不回流;**E2: drift 检出自动写 assumption 条目;E3: confirm 流转工具挂 checkpoint** | ✅ dispatch context 推送 | E2/E3 待做(待真实数据) |
 | 交付复盘 | ❌ Stage 10 硬编码字符串;**E4: 汇总 run 指标写 delivery 经验** | ✅ Stage 3 可检索 | E4 待做(需跨项目数据) |
 
