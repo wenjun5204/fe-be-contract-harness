@@ -141,6 +141,48 @@ def test_parallel_wave_codegen_thread_safe():
             e for e in r["events"] if e["kind"] == "blocked"]
 
 
+def test_execution_plan_from_dag():
+    """工作流解耦:执行计划由 workflow-dag.json 数据驱动(Kahn 拓扑分层)。
+
+    - 全 12 阶段进计划,无遗漏无重复
+    - 5A/5B 同波(impl 并行组),7/8 同波(delivery 并行组——旧 runner 顺序跑的缺口)
+    - 汇合点 6/9 在其全部前置之后
+    - parallel_groups 声明与分层矛盾时启动即报
+    """
+    from lib.runner import build_execution_plan
+    from lib.state_manager import load_dag
+
+    plan = build_execution_plan()
+    flat = [sid for wave in plan for sid in wave]
+    assert len(flat) == len(set(flat)) == 12, flat
+    wave_of = {sid: i for i, wave in enumerate(plan) for sid in wave}
+    assert wave_of["5A"] == wave_of["5B"], plan
+    assert wave_of["7"] == wave_of["8"], plan               # delivery 组生效
+    assert wave_of["5A"] < wave_of["6"] < wave_of["7"]       # 汇合点后置
+    assert wave_of["7"] < wave_of["9"] < wave_of["10"]
+    assert wave_of["0"] == 0                                 # 入口在首波
+
+    # 矛盾 DAG:把 5A 声明成依赖 6(循环)→ 启动即报,不跑到一半
+    dag = load_dag()
+    import copy
+    broken = copy.deepcopy(dag)
+    broken["stage_graph"]["6"]["next"] = ["5A"]  # 6 完成 → 5A,与 5A→6 形成环
+    try:
+        build_execution_plan(broken)
+        assert False, "循环 DAG 应启动即报"
+    except ValueError as e:
+        assert "循环" in str(e), e
+
+    # parallel_groups 声明与分层矛盾(把 1/2 声明成并行组但它们是串行链)
+    inconsistent = copy.deepcopy(dag)
+    inconsistent["parallel_groups"]["fake"] = {"branches": ["1", "2"], "join_at": "3"}
+    try:
+        build_execution_plan(inconsistent)
+        assert False, "矛盾的并行组声明应报错"
+    except ValueError as e:
+        assert "parallel_groups" in str(e), e
+
+
 def main():
     test_auto_mode_completes_loop()
     test_java_vue_receipts_match_actual_codegen_agents()
@@ -148,7 +190,8 @@ def main():
     test_non_auto_blocks_at_unmet_prereq()
     test_rerun_is_idempotent_resume()
     test_parallel_wave_codegen_thread_safe()
-    print("OK: runner 自测通过(6 组断言)")
+    test_execution_plan_from_dag()
+    print("OK: runner 自测通过(7 组断言)")
 
 
 if __name__ == "__main__":

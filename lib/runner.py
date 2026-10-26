@@ -184,6 +184,47 @@ def _stage_subagents(stage: str, policy: dict, stacks: Optional[List[str]] = Non
     return subagents
 
 
+def build_execution_plan(dag: Optional[dict] = None) -> List[List[str]]:
+    """从 workflow-dag.json 生成拓扑波次执行计划(工作流定义与执行解耦)。
+
+    规则:
+    - Kahn 拓扑分层:依赖全部满足的阶段进同一波,天然覆盖 parallel_groups
+      (5A/5B、7/8 前置相同 → 自动同波;汇合点 6/9 前置含全部分支 → 自动后置);
+    - parallel_groups 数据仍读出来做一层校验:声明的 branches 必须落进同一波,
+      不满足即 DAG 自身矛盾,启动即报(而不是跑一半才卡住);
+    - 计划只是顺序建议,真正的可行性仍由 transition 门控裁决(不可绕过不变)。
+
+    返回波次列表,如 [["0"], ["1"], ["2"], ..., ["5A","5B"], ["6"], ["7","8"], ["9"], ["10"]]。
+    """
+    if dag is None:
+        from lib.state_manager import load_dag
+        dag = load_dag()
+    graph = dag.get("stage_graph", {})
+
+    # stage_graph[sid].next = 我完成后谁可推进 → 反转为依赖边
+    deps: dict = {sid: set() for sid in graph}
+    for sid, spec in graph.items():
+        for nxt in (spec or {}).get("next", []):
+            if nxt in deps:
+                deps[nxt].add(sid)
+
+    waves: List[List[str]] = []
+    remaining = set(graph)
+    while remaining:
+        wave = sorted(sid for sid in remaining if not (deps[sid] - (set(graph) - remaining)))
+        if not wave:
+            raise ValueError(f"workflow-dag 存在循环依赖,卡在: {sorted(remaining)}")
+        waves.append(wave)
+        remaining -= set(wave)
+
+    # 校验 parallel_groups 声明:branches 必须同波(数据自洽性检查)
+    for gname, g in dag.get("parallel_groups", {}).items():
+        member_waves = {i for i, w in enumerate(waves) for m in g.get("branches", []) if m in w}
+        if len(member_waves) > 1:
+            raise ValueError(f"parallel_groups[{gname}] 声明的分支未落进同一波,DAG 自相矛盾")
+    return waves
+
+
 def _directive(
     stage: str,
     policy: dict,
@@ -338,43 +379,21 @@ def run(
     def record(stage: str, kind: str, detail) -> None:
         events.emit({"stage": stage, "kind": kind, "detail": detail})
 
-    # ---- Stage 0: 初始化(确定性) ----
-    _try_transition(
-        state_file,
-        lambda: _start_then_complete(
-            state_file, "0",
-            outputs={"execution_plan": f"contract-driven SDLC: {contract.name}"},
-            receipt=_register(state_file, issue_receipt("0", "orchestrator/init", "runner")),
-            evidence=[{"type": "contract", "detail": str(contract), "at": _now()}],
-        ),
-        events, "0", "done", "初始化 state(经 transition 门控)",
-    )
-
-    # ---- Stage 1/2/3/4: 契约已提供 → LLM 阶段 ----
-    for sid in ("1", "2", "3", "4"):
-        if auto and not live:
-            sub, reason = planned_skips[sid]
-            _try_transition(
-                state_file,
-                lambda sid=sid, sub=sub, reason=reason: skip_stage(
-                    state_file, sid,
-                    reason=reason,
-                    approved_by="runner:auto",
-                    receipt=_register(state_file, issue_receipt(sid, sub, "runner")),
-                    evidence=[{"type": "contract", "detail": str(contract), "at": _now()}],
-                ),
-                events, sid, "skip", reason,
-            )
-        else:
-            _run_llm_stage(
-                state_file, sid, policy, contract, entities, repo, context_max_tokens,
-                live=live, llm_runtime=llm_runtime, llm_script=llm_script,
-                llm_max_turns=llm_max_turns, auto=auto, events=events,
-            )
-
-    # ---- Stage 5A/5B: codegen(确定性,同波并行) ----
+    # ---- 确定性阶段 handler(每阶段的实体工作) ----
     backend = [s for s in stacks if s in ("node", "java")]
     frontend = [s for s in stacks if s in ("react", "vue")]
+
+    def _stage_init() -> None:
+        _try_transition(
+            state_file,
+            lambda: _start_then_complete(
+                state_file, "0",
+                outputs={"execution_plan": f"contract-driven SDLC: {contract.name}"},
+                receipt=_register(state_file, issue_receipt("0", "orchestrator/init", "runner")),
+                evidence=[{"type": "contract", "detail": str(contract), "at": _now()}],
+            ),
+            events, "0", "done", "初始化 state(经 transition 门控)",
+        )
 
     def _codegen_task(sid: str, group: List[str]) -> None:
         """单个 codegen 阶段的完整工作(生成+G1 门+transition),线程安全:
@@ -421,66 +440,81 @@ def run(
         except Exception as e:  # codegen 本身失败
             events.emit({"stage": sid, "kind": "failed", "detail": f"codegen 异常: {e}"})
 
-    # P1-6: 5A/5B 无相互依赖 → 同波并行(波次调度,与 DAG 定义一致);
-    # 波内完成事件顺序不确定,mock 断言按集合比较
-    from lib.parallel_wave_scheduler import run as run_waves
-    run_waves(
-        {"5A": [], "5B": []},
-        executor=lambda sid: _codegen_task(sid, backend if sid == "5A" else frontend),
-    )
+    def _stage_consistency() -> None:
+        try:
+            r = cross_stack_check(contract)
+            _try_transition(
+                state_file,
+                lambda: _start_then_complete(
+                    state_file, "6",
+                    outputs={"consistency_report": json.dumps(r, ensure_ascii=False)},
+                    receipt=_register(state_file, issue_receipt("6", "contract/consistency-checker", "runner")),
+                    checkpoint_decision="approve" if auto else None,
+                    auto_approve=auto,
+                    evidence=[{"type": "consistency", "detail": f"ok={r['ok']}", "at": _now()}],
+                ),
+                events, "6", "done", f"跨栈一致性: {r['ok']}",
+            )
+        except Exception as e:
+            record("6", "failed", f"一致性检查异常: {e}")
 
-    # ---- Stage 6: 一致性(确定性) ----
-    try:
-        r = cross_stack_check(contract)
+    def _stage_delivery() -> None:
         _try_transition(
             state_file,
             lambda: _start_then_complete(
-                state_file, "6",
-                outputs={"consistency_report": json.dumps(r, ensure_ascii=False)},
-                receipt=_register(state_file, issue_receipt("6", "contract/consistency-checker", "runner")),
+                state_file, "10",
+                outputs={"delivery_report": f"交付报告(见 summary): {contract.name}"},
+                receipt=_register(state_file, issue_receipt("10", "orchestrator/notifier", "runner")),
                 checkpoint_decision="approve" if auto else None,
                 auto_approve=auto,
-                evidence=[{"type": "consistency", "detail": f"ok={r['ok']}", "at": _now()}],
+                evidence=[{"type": "delivery", "detail": "runner 汇总", "at": _now()}],
             ),
-            events, "6", "done", f"跨栈一致性: {r['ok']}",
+            events, "10", "done", "交付报告(见 summary)",
         )
-    except Exception as e:
-        record("6", "failed", f"一致性检查异常: {e}")
 
-    # ---- Stage 7/8/9: LLM 阶段 ----
-    for sid in ("7", "8", "9"):
-        if auto and not live:
-            sub, reason = planned_skips[sid]
-            _try_transition(
-                state_file,
-                lambda sid=sid, sub=sub, reason=reason: skip_stage(
-                    state_file, sid,
-                    reason=reason,
-                    approved_by="runner:auto",
-                    receipt=_register(state_file, issue_receipt(sid, sub, "runner")),
-                ),
-                events, sid, "skip", reason,
-            )
+    def _stage_handler(sid: str) -> None:
+        """按阶段分发实体工作:确定性阶段走专属 handler,LLM 阶段统一走委派入口。"""
+        if sid == "0":
+            _stage_init()
+        elif sid == "5A":
+            _codegen_task(sid, backend)
+        elif sid == "5B":
+            _codegen_task(sid, frontend)
+        elif sid == "6":
+            _stage_consistency()
+        elif sid == "10":
+            _stage_delivery()
+        else:  # LLM 阶段(1/2/3/4/7/8/9)
+            if auto and not live:
+                sub, reason = planned_skips[sid]
+                _try_transition(
+                    state_file,
+                    lambda sid=sid, sub=sub, reason=reason: skip_stage(
+                        state_file, sid,
+                        reason=reason,
+                        approved_by="runner:auto",
+                        receipt=_register(state_file, issue_receipt(sid, sub, "runner")),
+                    ),
+                    events, sid, "skip", reason,
+                )
+            else:
+                _run_llm_stage(
+                    state_file, sid, policy, contract, entities, repo, context_max_tokens,
+                    live=live, llm_runtime=llm_runtime, llm_script=llm_script,
+                    llm_max_turns=llm_max_turns, auto=auto, events=events,
+                )
+
+    # ---- 数据驱动主循环:按 DAG 拓扑波次执行(工作流定义与执行解耦) ----
+    # 波次计划来自 workflow-dag.json(Kahn 分层):5A/5B 与 7/8 各自同波并行,
+    # 汇合点 6/9 自动后置;真正的可行性仍由 transition 门控逐阶段裁决。
+    plan = build_execution_plan()
+    from lib.parallel_wave_scheduler import run as run_waves
+    for wave in plan:
+        if len(wave) == 1:
+            _stage_handler(wave[0])
         else:
-            _run_llm_stage(
-                state_file, sid, policy, contract, entities, repo, context_max_tokens,
-                live=live, llm_runtime=llm_runtime, llm_script=llm_script,
-                llm_max_turns=llm_max_turns, auto=auto, events=events,
-            )
-
-    # ---- Stage 10: 交付报告(确定性) ----
-    _try_transition(
-        state_file,
-        lambda: _start_then_complete(
-            state_file, "10",
-            outputs={"delivery_report": f"交付报告(见 summary): {contract.name}"},
-            receipt=_register(state_file, issue_receipt("10", "orchestrator/notifier", "runner")),
-            checkpoint_decision="approve" if auto else None,
-            auto_approve=auto,
-            evidence=[{"type": "delivery", "detail": "runner 汇总", "at": _now()}],
-        ),
-        events, "10", "done", "交付报告(见 summary)",
-    )
+            # 波内并行:完成事件顺序不确定,events 断言按集合比较
+            run_waves({sid: [] for sid in wave}, executor=lambda sid: _stage_handler(sid))
 
     return {
         "ok": True,
