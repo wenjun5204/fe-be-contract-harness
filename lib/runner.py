@@ -256,14 +256,32 @@ def _register(state_file: Path, receipt: dict) -> dict:
 
 
 def _try_transition(state_file: Path, fn, events: "_EventLog", stage: str, kind: str, detail: str) -> Optional[dict]:
-    """执行一个经 transition 的动作;失败记录 blocked 事件。"""
+    """执行一个经 transition 的动作;失败记录 blocked 事件(附 hint 下一步建议)。
+
+    gate_blocked 后阶段留 running(正确行为),但重跑者需要知道怎么继续——
+    blocked 事件带上 transition.hint() 的建议命令(如 running 态应带同
+    receipt 调 complete,而非重启 start),消除"被拦后不知道下一步"。
+    """
     try:
         res = fn()
         status = res.get("status") or res.get("state")
         events.emit({"stage": stage, "kind": kind, "detail": detail, "status": status})
         return res
     except TransitionError as e:
-        events.emit({"stage": stage, "kind": "blocked", "detail": f"{detail} -> {e}"})
+        suggestion = None
+        try:
+            from lib.transition import hint
+            for s in hint(state_file).get("suggestions", []):
+                if s.get("stage") == stage:
+                    suggestion = s.get("command") or s.get("action")
+                    break
+        except Exception:  # noqa: BLE001 —— hint 失败不影响 blocked 记录
+            pass
+        events.emit({
+            "stage": stage, "kind": "blocked",
+            "detail": f"{detail} -> {e}",
+            **({"hint": suggestion} if suggestion else {}),
+        })
         return None
 
 

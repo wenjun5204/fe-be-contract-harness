@@ -158,28 +158,47 @@ def validate_requirements_completion(state_data: dict) -> List[str]:
         ]
 
     errors: List[str] = []
+
+    # ACI:每条报错带"期望形态",让报告方(模型/人)一次修对,不再试错。
+    SCAFFOLD_HINT = (
+        "可先运行 python3 lib/requirements_spec.py scaffold 拿到合法 Spec 模板再填"
+    )
     if not spec.get("scope", {}).get("complexity"):
-        errors.append("复杂度评估未完成")
+        errors.append("复杂度评估未完成(期望 spec.scope.complexity ∈ {L,M,H})")
     gaps = coverage_gaps(spec)
     if gaps:
-        errors.append(f"需求覆盖不完整(高影响类未覆盖): {', '.join(sorted(gaps))}")
+        errors.append(
+            f"需求覆盖不完整(高影响类未覆盖): {', '.join(sorted(gaps))}"
+            "(期望 spec.clarification.coverage.<类> = \"covered\",全部 11 类)"
+        )
     if spec["clarification"].get("unresolved_questions"):
-        errors.append("存在未解决的高影响问题")
+        errors.append("存在未解决的高影响问题(期望 spec.clarification.unresolved_questions 为空)")
     if spec.get("document", {}).get("quality_gate") != "passed":
-        errors.append("需求文档质量门未通过(占位/歧义/契约就绪性)")
+        errors.append(
+            "需求文档质量门未通过(期望 spec.document.quality_gate = \"passed\"——"
+            f"注意是字符串 passed,当前值: {spec.get('document', {}).get('quality_gate')!r})"
+        )
     if not spec.get("document", {}).get("approved"):
-        errors.append("需求 Spec 未确认(approved)")
+        errors.append("需求 Spec 未确认(期望 spec.document.approved = true)")
     # 契约就绪性:能派生 OpenAPI 的最小前提
     entities = spec.get("contract_readiness", {}).get("entities", [])
     if not entities:
-        errors.append("契约就绪性不足:未定义数据实体(无法派生 OpenAPI schemas)")
+        errors.append(
+            "契约就绪性不足:未定义数据实体(期望 spec.contract_readiness.entities = "
+            "[{name, fields: [{name, type, required, bounds}], states}],非空)"
+        )
     else:
         for e in entities:
             if not e.get("fields"):
-                errors.append(f"实体 {e.get('name', '?')} 未定义字段(无法派生 schema)")
+                errors.append(f"实体 {e.get('name', '?')} 未定义字段(期望 fields: [{{name, type, required, bounds}}])")
                 break
     if not spec.get("contract_readiness", {}).get("error_codes"):
-        errors.append("契约就绪性不足:未定义错误码(无法派生错误响应)")
+        errors.append(
+            "契约就绪性不足:未定义错误码(期望 spec.contract_readiness.error_codes = "
+            "[{code, meaning}],非空)"
+        )
+    if errors:
+        errors.append(SCAFFOLD_HINT)
     return errors
 
 
@@ -188,13 +207,31 @@ def main(argv=None) -> int:
     import pathlib
 
     p = argparse.ArgumentParser(description="结构化需求 Spec 校验")
-    p.add_argument("spec_file")
-    args = p.parse_args(argv)
+    sub = p.add_subparsers(dest="cmd")
 
-    spec = json.loads(pathlib.Path(args.spec_file).read_text(encoding="utf-8"))
-    errors = validate_requirements_completion({"requirements_spec": spec})
-    print(json.dumps({"ok": not errors, "errors": errors}, ensure_ascii=False, indent=2))
-    return 0 if not errors else 1
+    v = sub.add_parser("validate", help="校验 Spec 是否满足 Stage 1 机验")
+    v.add_argument("spec_file")
+
+    s = sub.add_parser("scaffold", help="生成合法 Spec 模板(填空后经 validate 校验)")
+    s.add_argument("--out", default=None, help="输出文件路径;缺省打印 stdout")
+
+    args = p.parse_args(argv)
+    if args.cmd == "validate":
+        spec = json.loads(pathlib.Path(args.spec_file).read_text(encoding="utf-8"))
+        errors = validate_requirements_completion({"requirements_spec": spec})
+        print(json.dumps({"ok": not errors, "errors": errors}, ensure_ascii=False, indent=2))
+        return 0 if not errors else 1
+    if args.cmd == "scaffold":
+        template = json.dumps(default_requirements_spec(), ensure_ascii=False, indent=2)
+        if args.out:
+            pathlib.Path(args.out).write_text(template + "\n", encoding="utf-8")
+            print(json.dumps({"ok": True, "file": args.out,
+                              "note": "填完 scope/coverage/document/contract_readiness 后跑 validate"}, ensure_ascii=False))
+        else:
+            print(template)
+        return 0
+    p.print_help()
+    return 1
 
 
 if __name__ == "__main__":

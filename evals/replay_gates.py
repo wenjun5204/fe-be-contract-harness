@@ -127,24 +127,35 @@ def replay_prereq_not_ready(tmp: Path) -> dict:
 
 def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
-        scenarios = [
-            replay_normal_delivery,
-            replay_idle_fail_closed,
-            replay_missing_outputs_blocked,
-            replay_transient_error_recovered,
-            replay_prereq_not_ready,
-        ]
-        results = []
-        for fn in scenarios:
-            try:
-                results.append(fn(Path(tmp)))
-            except AssertionError as e:
-                results.append({"scenario": fn.__name__, "ok": False, "assert": str(e)})
-        for r in results:
-            print(json.dumps(r, ensure_ascii=False))
-        passed = sum(1 for r in results if r["ok"])
-        print(f"replay: {passed}/{len(results)} scenarios passed")
-        return 0 if passed == len(results) else 1
+        # 副作用隔离:_fail() 会写真实采集池(evals/regressions/.pending/)与经验目录,
+        # 回放场景的失败素材属测试噪音,重定向到 tmp——采集池只收真实 run 的素材
+        import lib.experience as _exp
+        import lib.llm_dispatch as _disp
+        reg_backup, exp_backup = _disp.REGRESSIONS_DIR, _exp.EXPERIENCE_DIR
+        _disp.REGRESSIONS_DIR = Path(tmp) / "regressions"
+        _exp.EXPERIENCE_DIR = Path(tmp) / "experience"
+        try:
+            scenarios = [
+                replay_normal_delivery,
+                replay_idle_fail_closed,
+                replay_missing_outputs_blocked,
+                replay_transient_error_recovered,
+                replay_prereq_not_ready,
+            ]
+            results = []
+            for fn in scenarios:
+                try:
+                    results.append(fn(Path(tmp)))
+                except AssertionError as e:
+                    results.append({"scenario": fn.__name__, "ok": False, "assert": str(e)})
+            for r in results:
+                print(json.dumps(r, ensure_ascii=False))
+            passed = sum(1 for r in results if r["ok"])
+            print(f"replay: {passed}/{len(results)} scenarios passed")
+            return 0 if passed == len(results) else 1
+        finally:
+            _disp.REGRESSIONS_DIR = reg_backup
+            _exp.EXPERIENCE_DIR = exp_backup
 
 
 if __name__ == "__main__":

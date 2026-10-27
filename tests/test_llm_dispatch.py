@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """LLM 阶段执行器(tool calling 主循环)自测。运行:python3 tests/test_llm_dispatch.py"""
+import contextlib
 import sys
 import tempfile
 from pathlib import Path
@@ -36,6 +37,29 @@ def _state_with_prereqs(d):
     for sid in ("0", "1", "2", "3", "4", "5A", "5B", "6"):
         set_stage_state(sf, sid, "completed")
     return sf
+
+
+import lib.llm_dispatch as _dispatch_mod  # noqa: E402
+
+
+@contextlib.contextmanager
+def _isolated_fail_side_effects(tmpdir):
+    """失败路径测试的副作用隔离:把 E1 采集池与经验目录重定向到临时目录。
+
+    _fail() 会写两处真实仓库目录(evals/regressions/.pending/ 与
+    config/experience/),任何断言失败的测试都会污染采集池——
+    真实 run 的素材和测试噪音无法区分。所有走 _fail 的测试必须套本隔离。
+    """
+    reg_backup = _dispatch_mod.REGRESSIONS_DIR
+    import lib.experience as _exp_mod
+    exp_dir_backup = _exp_mod.EXPERIENCE_DIR
+    _dispatch_mod.REGRESSIONS_DIR = Path(tmpdir) / "regressions"
+    _exp_mod.EXPERIENCE_DIR = Path(tmpdir) / "experience"
+    try:
+        yield
+    finally:
+        _dispatch_mod.REGRESSIONS_DIR = reg_backup
+        _exp_mod.EXPERIENCE_DIR = exp_dir_backup
 
 
 def test_stage_completes_with_tool_calls():
@@ -77,7 +101,7 @@ def test_checkpoint_pending_without_auto_approve():
 
 def test_fail_closed_no_report_outputs():
     """模型不调用 report_outputs(连续两轮空转)→ failed 真实落盘(可人工 retry)。"""
-    with tempfile.TemporaryDirectory() as d:
+    with tempfile.TemporaryDirectory() as d, _isolated_fail_side_effects(d):
         sf = _state_with_prereqs(d)
         script = [
             {"content": "我分析了契约,工作已完成"},
@@ -98,7 +122,7 @@ def test_fail_closed_no_report_outputs():
 
 def test_max_turns_exhausted():
     """超过 max_turns 仍未收尾 → failed(fail-closed)。"""
-    with tempfile.TemporaryDirectory() as d:
+    with tempfile.TemporaryDirectory() as d, _isolated_fail_side_effects(d):
         sf = _state_with_prereqs(d)
         script = [{"tool_calls": [{"name": "read_contract", "arguments": {}}]} for _ in range(5)]
         res = run_llm_stage(_directive(), sf, client=MockLLMClient(script),
@@ -165,7 +189,7 @@ def test_transient_llm_error_retried():
             return {"tool_calls": [{"id": "c1", "name": "report_outputs",
                                     "arguments": {"outputs": {"test_cases": [{"id": "TC-1"}]}}}]}
 
-    with tempfile.TemporaryDirectory() as d:
+    with tempfile.TemporaryDirectory() as d, _isolated_fail_side_effects(d):
         sf = _state_with_prereqs(d)
         # 瞬时错误(timeout,可 retryable)重试 2 次后成功
         res = run_llm_stage(_directive(), sf,
@@ -174,7 +198,7 @@ def test_transient_llm_error_retried():
         assert res["ok"], res
         assert any("retry" in t for t in res["transcript"]), res["transcript"]
 
-    with tempfile.TemporaryDirectory() as d:
+    with tempfile.TemporaryDirectory() as d, _isolated_fail_side_effects(d):
         sf = _state_with_prereqs(d)
         # 永久错误(缺 key,不含 retryable 关键词)一次都不重试,直接 fail
         class CountingClient(FlakyClient):
@@ -211,36 +235,26 @@ def test_final_nudge_saves_max_turns_run():
 def test_failure_writes_experience():
     """P1-2: 失败沉淀 error 经验(经验闭环写侧),可被 query 检索到。"""
     import lib.experience as exp
-    with tempfile.TemporaryDirectory() as d:
-        # 把经验目录指到临时目录,避免污染仓库 config/experience
-        backup = exp.EXPERIENCE_DIR
-        exp.EXPERIENCE_DIR = Path(d) / "experience"
-        try:
-            sf = _state_with_prereqs(d)
-            script = [
-                {"content": "我分析了契约,工作已完成"},
-                {"content": "我认为不需要调用工具"},
-            ]
-            res = run_llm_stage(_directive(), sf, client=MockLLMClient(script),
-                                contract_path=CONTRACT, workdir=d, auto_approve=True)
-            assert not res["ok"], res
-            hits = exp.query("空转", category="error")
-            assert hits and "stage=8 失败" in hits[0]["text"], hits
-            # source 标记写在条目 header
-            content = exp.load("error")
-            assert "(llm_dispatch)" in content, content
-        finally:
-            exp.EXPERIENCE_DIR = backup
+    with tempfile.TemporaryDirectory() as d, _isolated_fail_side_effects(d):
+        sf = _state_with_prereqs(d)
+        script = [
+            {"content": "我分析了契约,工作已完成"},
+            {"content": "我认为不需要调用工具"},
+        ]
+        res = run_llm_stage(_directive(), sf, client=MockLLMClient(script),
+                            contract_path=CONTRACT, workdir=d, auto_approve=True)
+        assert not res["ok"], res
+        hits = exp.query("空转", category="error")
+        assert hits and "stage=8 失败" in hits[0]["text"], hits
+        # source 标记写在条目 header
+        content = exp.load("error")
+        assert "(llm_dispatch)" in content, content
 
 
 def test_failure_collects_regression_material():
     """E1 评测采集:失败 transcript 落盘 .pending/,文件名含 stage 与原因摘要。"""
     import lib.llm_dispatch as dispatch
-    with tempfile.TemporaryDirectory() as d:
-        # 采集目录指到临时目录,避免污染仓库 evals/regressions/.pending
-        backup = dispatch.REGRESSIONS_DIR
-        dispatch.REGRESSIONS_DIR = Path(d) / "regressions"
-        try:
+    with tempfile.TemporaryDirectory() as d, _isolated_fail_side_effects(d):
             sf = _state_with_prereqs(d)
             script = [
                 {"content": "我分析了契约,工作已完成"},
@@ -256,8 +270,7 @@ def test_failure_collects_regression_material():
             data = _json.loads(files[0].read_text(encoding="utf-8"))
             assert data["stage"] == "8" and "空转" in data["reason"], data
             assert "stage8" in files[0].name and "未筛选" in data["note"], files[0].name
-        finally:
-            dispatch.REGRESSIONS_DIR = backup
+
 
 
 def test_pruned_sections_hint_pull_channel():

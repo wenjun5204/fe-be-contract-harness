@@ -217,7 +217,18 @@ def run_llm_stage(
         register_receipt(sf, receipt)
         start_stage(sf, stage)
     except (TransitionError, ValueError) as e:
-        return {"ok": False, "stage": stage, "status": "blocked", "reasons": [str(e)]}
+        # ACI:拦截附下一步建议(如阶段已 running 应带同 receipt 重调 complete 而非重启)
+        suggestion = None
+        try:
+            from lib.transition import hint as transition_hint
+            for s in transition_hint(sf).get("suggestions", []):
+                if s.get("stage") == stage:
+                    suggestion = s.get("command") or s.get("action")
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+        return {"ok": False, "stage": stage, "status": "blocked",
+                "reasons": [str(e)], **({"hint": suggestion} if suggestion else {})}
 
     # 2. 构造初始消息(system 纪律 + dispatch 上下文 + 推拉协作提示)
     context = directive.get("context") or {}
@@ -334,9 +345,21 @@ def run_llm_stage(
             evidence=evidence,
         )
     except TransitionError as e:
+        # ACI:门控拦截附下一步建议(带同 receipt 重调 complete,阶段已在 running
+        # 勿重启 start)——消除"被拦后不知道怎么继续"
+        suggestion = None
+        try:
+            from lib.transition import hint as transition_hint
+            for s in transition_hint(sf).get("suggestions", []):
+                if s.get("stage") == stage:
+                    suggestion = s.get("command") or s.get("action")
+                    break
+        except Exception:  # noqa: BLE001 —— hint 失败不影响拦截记录
+            pass
         return {
             "ok": False, "stage": stage, "status": "gate_blocked",
             "reasons": e.reasons, "transcript": transcript, "tool_call_count": tool_call_count,
+            **({"hint": suggestion} if suggestion else {}),
         }
 
     return {

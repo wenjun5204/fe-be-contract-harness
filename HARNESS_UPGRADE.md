@@ -177,17 +177,21 @@ npm run demo
 | --live mock 演练 | ✅ 12/12，7 个 LLM 阶段全部经 tool calling 主循环真实过门，trajectory 落盘 |
 | KPI 首份真实数据 | success_rate 1.0；llm: 7 阶段 9 tool_calls 0 失败 |
 
-### 真实使用暴露的发现（后续 backlog）
+### 真实使用暴露的发现（已修 3 项，待做 1 项）
 
-1. **--live + --auto 语义缺口**：live 模式下 auto 跳过语义完全失效（`auto and not live`），
-   mock 演练无法只跑部分阶段——要求 mock 脚本覆盖全部 9 个 LLM 阶段。
-   候选改进：mock 脚本缺某阶段时该阶段降级为 auto skip（演练友好），或加 --stages 过滤参数。
-2. **Stage 1 需求机验门的首次真实体验**：11 类覆盖 + `quality_gate="passed"`（不是 "pass"）
-   + error_codes 非空 + document.approved 子对象——正确构造合法 spec 需 4 轮试错。
-   候选改进：机验报错附带"正确形态示例"（错误信息可行动,ACI 原则），或提供
-   `requirements_spec.py scaffold` 命令生成模板。
-3. **重跑恢复路径**：gate_blocked 后阶段留 running,重跑时 start 被拒（行为正确但无引导）。
-   候选改进：runner 对 running 态阶段的 resume 策略（自动 retry 或 hint 引导）。
-4. **E1 采集池的测试污染**：smoke-test 的失败测试把素材写进真实 .pending/（33 条噪音）。
-   候选改进：测试 fixture 应重定向 REGRESSIONS_DIR 到临时目录（同 experience 的做法）。
-   本次处置：噪音直接清空（模式均已被 replay_gates 覆盖）。
+1. **--live + --auto 语义缺口**（⏳ 待做）：live 模式下 auto 跳过语义完全失效
+   （`auto and not live`），mock 演练无法只跑部分阶段——要求 mock 脚本覆盖
+   全部 9 个 LLM 阶段。候选改进：mock 脚本缺某阶段时降级为 auto skip，或加
+   --stages 过滤参数。
+2. **Stage 1 需求机验门报错不可行动**（✅ 2026-10-27 已修）：正确构造合法 spec
+   需 4 轮试错。修复：每条机验报错附"期望形态 + 当前实际值"（如
+   quality_gate 期望 "passed" 而非 "pass"）；新增 `requirements_spec.py
+   scaffold` 命令生成合法模板，scaffold→填→validate 一轮通过。
+3. **gate_blocked 后重跑无引导**（✅ 2026-10-27 已修）：llm_dispatch 的
+   blocked/gate_blocked 返回值与 runner blocked 事件均附 transition.hint()
+   的下一步命令（"带同 receipt 重调 complete,勿重启 start"），E2E 验证
+   两个场景均给出正确建议。
+4. **E1 采集池被测试污染**（✅ 2026-10-27 已修）：test_llm_dispatch 全部 6 个
+   失败路径套 `_isolated_fail_side_effects` 上下文（重定向采集池+经验目录）；
+   追查发现 replay_gates.py 也是污染源（回放场景守卫采集池却自己污染它），
+   同样隔离。全链路验证:replay/smoke/demo 后采集池 0 条——只收真实 run 素材。
