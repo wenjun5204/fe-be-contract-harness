@@ -158,3 +158,36 @@ npm run demo
 1. 推送 + 合并 feature 分支回 main
 2. P2-2 平台适配（等真实平台接入需求时逐平台 PR）
 3. P2-1 condenser LLM 摘要版 / P2-4 coverage 强拦 / P2-5 工具沙箱（等真实用户反馈或执行类工具需求）
+
+---
+
+## 真实契约首跑记录（2026-10-27，fe_backend_mini · 全家福·接福气 v1.8.0）
+
+首次在真实项目上运行 harness（此前全部验证基于 petstore 演示契约）。
+
+### 结果
+
+| 环节 | 结果 |
+|---|---|
+| 契约规模 | **61 端点 / 109 schema / 369 字段**（petstore 仅 3/2/5）——parser 一次消化成功 |
+| 四栈 G1 门 | ✅ 全过（java 111 文件、node 112 文件，幂等+结构忠实） |
+| 跨栈一致性 | ✅ |
+| runner --auto（含 --repo 真实仓库知识） | ✅ 12/12 零 blocked 零 failed |
+| dispatch context 质量 | ✅ 按实体过滤命中业务规则/QA 教训/领域模型，4834 字符预算内无裁剪 |
+| --live mock 演练 | ✅ 12/12，7 个 LLM 阶段全部经 tool calling 主循环真实过门，trajectory 落盘 |
+| KPI 首份真实数据 | success_rate 1.0；llm: 7 阶段 9 tool_calls 0 失败 |
+
+### 真实使用暴露的发现（后续 backlog）
+
+1. **--live + --auto 语义缺口**：live 模式下 auto 跳过语义完全失效（`auto and not live`），
+   mock 演练无法只跑部分阶段——要求 mock 脚本覆盖全部 9 个 LLM 阶段。
+   候选改进：mock 脚本缺某阶段时该阶段降级为 auto skip（演练友好），或加 --stages 过滤参数。
+2. **Stage 1 需求机验门的首次真实体验**：11 类覆盖 + `quality_gate="passed"`（不是 "pass"）
+   + error_codes 非空 + document.approved 子对象——正确构造合法 spec 需 4 轮试错。
+   候选改进：机验报错附带"正确形态示例"（错误信息可行动,ACI 原则），或提供
+   `requirements_spec.py scaffold` 命令生成模板。
+3. **重跑恢复路径**：gate_blocked 后阶段留 running,重跑时 start 被拒（行为正确但无引导）。
+   候选改进：runner 对 running 态阶段的 resume 策略（自动 retry 或 hint 引导）。
+4. **E1 采集池的测试污染**：smoke-test 的失败测试把素材写进真实 .pending/（33 条噪音）。
+   候选改进：测试 fixture 应重定向 REGRESSIONS_DIR 到临时目录（同 experience 的做法）。
+   本次处置：噪音直接清空（模式均已被 replay_gates 覆盖）。
