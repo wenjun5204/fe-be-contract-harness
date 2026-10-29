@@ -162,10 +162,10 @@ npm run demo
   与 StageResult 回传（apply_stage_result：register → start → complete 全门控，
   张冠李戴 receipt / 缺产出 fail-closed 有测）；已接进 smoke-test
 
-**下一步候选**（按建议优先级）：
-1. 推送 + 合并 feature 分支回 main
-2. P2-2 平台适配（等真实平台接入需求时逐平台 PR）
-3. P2-1 condenser LLM 摘要版 / P2-4 coverage 强拦 / P2-5 工具沙箱（等真实用户反馈或执行类工具需求）
+**下一步候选**（按建议优先级，2026-10-29 更新）：
+1. ✅ 推送合并已完成（main 与 origin 同步）
+2. P2-2 平台适配收口：挂真实 Claude Code/OpenClaw 运行时端到端验证一次（本地部分已全落地）
+3. 再找 1~2 个真实项目跑（大型契约 200+ 端点压 condenser/60k 预算），用真实数据判定 P2-1 condenser LLM 摘要版 / P2-4 coverage 强拦的优先级
 
 ---
 
