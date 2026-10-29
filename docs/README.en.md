@@ -87,6 +87,8 @@ OPENAI_API_KEY=sk-... python3 lib/runner.py run examples/petstore.yaml --out gen
 
 Fail-closed semantics: the model can only affect the world through tools; tool errors return `{"ok": false}` for self-correction; a stage reaches a terminal state **only** by calling `report_outputs` with structured outputs covering `required_outputs`, then passing the full `complete_stage` gates (FSM / prerequisites / receipt / checkpoint / evidence). Exceeding `--llm-max-turns` or idling → the stage lands in `failed` (first-class state, retryable) — never a fake completion.
 
+Combining `--live` with `--auto` (partial mock drills): LLM stages not covered by the mock script degrade to approved skips (the skip event notes the degradation), so a mock script may cover only the stages you want to drill — no need to script all 9 LLM stages. Non-mock runtimes never degrade.
+
 ## Harness Maturity (what's real vs. pending)
 
 - ✅ Deterministic kernel: parsing, 4-stack codegen, G1, cross-stack consistency, drift detection, FSM, receipts, checkpoints, coverage collection — all run and test locally without any LLM
@@ -96,7 +98,8 @@ Fail-closed semantics: the model can only affect the world through tools; tool e
 - ✅ Deterministic context condenser: old tool results elided when the message history exceeds budget (assistant tool_calls preserved for wire-format pairing)
 - ✅ Artifact integrity: generated files carry sha256 in `codegen-manifest.json`; evidence pointing at a generated directory is hash-verified (tampered artifacts are rejected)
 - ✅ Gate-behavior replay evals: 5 scenarios replayed with mock clients on every CI run to assert fail-closed semantics never regress
-- ⚠️ Platform adapters (launch agent → return StageResult → call transition) for Claude Code / OpenClaw etc. still need per-platform validation
+- ✅ `run_check` execution tool with sandbox: lint/build/test commands come from per-stack whitelists (no custom commands from the model), no shell, timeout, output truncation; exit codes are reported faithfully and can serve as evidence
+- ⚠️ Platform adapter: claude-code event mapping (PreToolUse/PostToolUse/SessionStart → standard envelope) and openclaw param flattening are fixture-tested; a subagent dispatch adapter (`lib/platform/subagent_dispatch.py`) covers directive → task and StageResult → transition with fail-closed receipts — but end-to-end mounting on a real platform still needs validation
 - ⚠️ `allOf` / `oneOf` / `anyOf` not fully supported yet; generated skeletons exclude business logic, auth, real DB
 
 ## Contributing & Security

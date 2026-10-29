@@ -17,6 +17,7 @@
 - consistency_check   跨栈一致性检查
 - query_knowledge     领域知识检索(按 domain + 实体过滤)
 - read_file/write_file workspace 范围内文件读写
+- run_check           白名单执行类工具(lint/build/test;沙箱:无 shell+超时+输出截断)
 - report_outputs      阶段终态产出上报
 
 用法:
@@ -279,6 +280,12 @@ def _report_outputs_fn(args: dict) -> dict:
     return {"ok": True, "received": True, "keys": sorted(outputs.keys())}
 
 
+def _run_check_fn(workdir: Path, args: dict) -> dict:
+    """P2-5 执行类工具:白名单命令沙箱(命令来自栈配置,参数无命令字段,LLM 不可控)。"""
+    from lib.tool_sandbox import run_whitelisted
+    return run_whitelisted(args["kind"], args["stack"], workdir, args.get("timeout", 120))
+
+
 # ---- 默认工具集构造 ----
 
 def build_default_tools(
@@ -376,6 +383,25 @@ def build_default_tools(
             "required": ["path", "content"],
         },
         fn=lambda args: _write_file_fn(workdir, args),
+    ))
+    registry.register(Tool(
+        name="run_check",
+        description=(
+            "执行白名单校验命令(lint/build/test)——命令由各技术栈配置决定,"
+            "不能也不需要传自定义命令。返回 exit_code 与截断后的输出;"
+            "exit_code=0 可作为完成证据引用。超时默认 120s(上限 600s)。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": ["lint", "build", "test"],
+                         "description": "校验类型:lint=静态检查,build=构建,test=测试"},
+                "stack": {"type": "string", "enum": ["react", "vue", "node", "java"]},
+                "timeout": {"type": "integer", "description": "超时秒数,缺省 120,上限 600"},
+            },
+            "required": ["kind", "stack"],
+        },
+        fn=lambda args: _run_check_fn(workdir, args),
     ))
     registry.register(Tool(
         name="report_outputs",

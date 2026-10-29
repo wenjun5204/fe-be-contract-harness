@@ -141,6 +141,46 @@ def test_parallel_wave_codegen_thread_safe():
             e for e in r["events"] if e["kind"] == "blocked"]
 
 
+def test_live_auto_mock_partial_script_degrades_to_skip():
+    """--live + --auto:mock 脚本未覆盖的 LLM 阶段降级为 auto skip(真实首跑发现 #1)。
+
+    mock 演练可只覆盖感兴趣的阶段(此处仅 Stage 4):覆盖的阶段经 tool calling
+    主循环真实过门完成,未覆盖的阶段显式跳过并注明降级原因,不要求脚本覆盖
+    全部 9 个 LLM 阶段。
+    """
+    with tempfile.TemporaryDirectory() as d:
+        out = Path(d) / "gen"
+        state = Path(d) / "state.json"
+        script = Path(d) / "script.json"
+        script.write_text(json.dumps({"stages": {"4": [
+            {"tool_calls": [{"name": "report_outputs",
+                             "arguments": {"outputs": {"branch_name": "feat/partial-drill"}}}]},
+        ]}}, ensure_ascii=False), encoding="utf-8")
+        r = run(EXAMPLE, out, state, ["node"], auto=True, live=True,
+                llm_runtime="mock", llm_script=script)
+        assert r["ok"], r
+        # 12 阶段全部终态;被覆盖的 Stage 4 经真实执行完成,其余 LLM 阶段降级跳过
+        assert r["summary"]["done"] == 12, r["summary"]
+        assert not r["summary"]["failed"], r["summary"]
+        st = read_state(state)["stages"]
+        assert st["4"]["state"] == "completed", st["4"]
+        assert st["4"]["outputs"]["branch_name"] == "feat/partial-drill", st["4"]
+        assert read_state(state)["receipts"]["4"]["used"], st["4"]
+        for sid in ("1", "2", "3", "7", "8", "9"):
+            assert st[sid]["state"] == "skipped", (sid, st[sid])
+        # 降级原因落事件(skip 事件 detail 注明降级,审计可见)
+        skips = {e["stage"]: e["detail"] for e in r["events"] if e["kind"] == "skip"}
+        for sid in ("1", "2", "3", "7", "8", "9"):
+            assert "降级 auto 跳过" in skips[sid], (sid, skips)
+        assert "4" not in skips, skips
+        # Stage 4 走的是真实 llm 主循环,非 skip
+        llm_events = [e for e in r["events"] if e["kind"] == "llm"]
+        assert {e["stage"] for e in llm_events} == {"4"}, llm_events
+        assert llm_events[0]["detail"]["ok"], llm_events[0]["detail"]
+        # 无 blocked / failed 事件
+        assert not [e for e in r["events"] if e["kind"] == "blocked"], r["events"]
+
+
 def test_execution_plan_from_dag():
     """工作流解耦:执行计划由 workflow-dag.json 数据驱动(Kahn 拓扑分层)。
 
@@ -190,8 +230,9 @@ def main():
     test_non_auto_blocks_at_unmet_prereq()
     test_rerun_is_idempotent_resume()
     test_parallel_wave_codegen_thread_safe()
+    test_live_auto_mock_partial_script_degrades_to_skip()
     test_execution_plan_from_dag()
-    print("OK: runner 自测通过(7 组断言)")
+    print("OK: runner 自测通过(8 组断言)")
 
 
 if __name__ == "__main__":

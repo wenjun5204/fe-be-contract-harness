@@ -262,6 +262,10 @@ python3 lib/runner.py run examples/petstore.yaml \
 
 `--live` 的语义：模型只能通过工具影响世界，工具异常收敛为 `{"ok": false}` 交回模型自纠错；阶段要达终态必须调用 `report_outputs` 提交覆盖 `required_outputs` 的 structured outputs，再走 `complete_stage` 全门控。未提交、超过 `--llm-max-turns` 或连续空转时，阶段停在 `running` 并返回失败，不会伪造完成。
 
+工具面（9 个）：契约/知识/文件/符号检索等读检索类，`write_file`（workspace 内），以及 `run_check` 执行类工具——跑 lint/build/test，命令来自各栈白名单（模型不能传自定义命令），无 shell、带超时与输出截断，`exit_code` 可作为完成证据。
+
+`--live` 与 `--auto` 组合（mock 部分演练）：mock 脚本未覆盖的 LLM 阶段自动降级为带批准的 skip（事件中注明"降级 auto 跳过"），因此 mock 脚本可以只覆盖你想演练的几个阶段，不必写全 9 个 LLM 阶段；非 mock 运行时不降级。
+
 > 建议将 `state.json` 和 `gen/` 作为运行产物处理，不要提交到业务代码仓库。
 
 ---
@@ -307,7 +311,7 @@ python3 lib/runner.py status --state <状态文件>
 | `--out` | 各栈生成产物根目录，默认 `gen` |
 | `--state` | 工作流状态文件，默认 `state.json` |
 | `--stacks` | 需要处理的技术栈，逗号分隔 |
-| `--auto` | 演示自动模式，不是正式人工审批替代品 |
+| `--auto` | 演示自动模式，不是正式人工审批替代品；与 `--live` + mock 组合时，脚本未覆盖的 LLM 阶段降级为带批准的 skip |
 | `--repo` | 目标业务仓库；用于读取 `.agents/docs/` 仓库知识 |
 | `--context-max-tokens` | 每个 LLM directive 的知识上下文预算，默认 4000 |
 | `--live` | LLM 阶段经 tool calling 主循环真实执行，而非仅签发 directive |
@@ -353,7 +357,27 @@ python3 lib/runner.py status --state <状态文件>
 2. 将 `context.text` 和 `contract` 注入 Agent 上下文；
 3. 保留 receipt 并在 Agent 回传时使用；
 4. 让 Agent 提交 `outputs`、`evidence`；
-5. 通过 `lib/transition.py` 推进阶段，而不是直接改状态文件。
+5. 通过 `lib/transition.py` 推进阶段，而不是直接修改状态文件。
+
+其中第 2–5 步已有现成工具（`lib/platform/`）：
+
+```bash
+# 派发：dispatch directive → 子 Agent 任务包（prompt 已注入角色职责、
+# required_outputs、receipt 与 transition 门控命令序列）
+python3 lib/platform/subagent_dispatch.py task \
+  --directive directive.json --state state.json
+
+# 回传：平台回传 StageResult → 经 transition 全门控推进（伪造 receipt /
+# 缺产出 fail-closed，阶段不伪造终态）
+python3 lib/platform/subagent_dispatch.py result \
+  --state state.json --payload result.json
+
+# 事件：平台原始 hook 事件 → 标准 envelope（hooks/*-guard 可消费）；
+# claude-code（PreToolUse/PostToolUse/SessionStart 精确映射）与 openclaw（params 平铺）已 fixture 固化
+python3 lib/platform/event_adapter.py --platform claude-code --event-json '<平台事件 JSON>'
+```
+
+两种接法：CLI 模式把门控命令嵌进子 Agent prompt，由子 Agent 自己执行、hooks 守卫；回调模式由适配器代为 `register → start → complete`（与 `--live` 主循环同一门控语义）。
 
 ### 手工推进一个阶段
 
@@ -536,6 +560,7 @@ fe-be-contract-harness/
 │   ├── llm_dispatch.py      # --live 模式：LLM 阶段 tool calling 主循环
 │   ├── llm_client.py        # LLM 客户端（mock / openai 运行时）
 │   ├── tool_registry.py     # LLM 阶段可用工具注册表
+│   ├── platform/            # 平台适配：事件映射 + 子 Agent 派发/回传
 │   ├── context_orchestrator.py
 │   ├── domain_knowledge.py
 │   └── repo_knowledge.py
@@ -551,6 +576,5 @@ fe-be-contract-harness/
 - ✅ 领域知识与仓库知识可被校验，并可以自动进入 LLM dispatch context；
 - ✅ 非自动 runner 不会把 LLM 阶段伪装成已完成；
 - ✅ `--live` 模式下 LLM 阶段可经 tool calling 主循环真实执行（mock / openai 运行时），全程走 transition 门控、无旁路；
-- ⚠️ 真正接入 Claude Code / OpenClaw 等支持 subagent 的平台的“启动 Agent → 回传 StageResult → 调用 transition”适配仍需按目标运行时验证；
-- ⚠️ `workflow-dag.json` 定义了并行分支关系；通用 `parallel_wave_scheduler` 已可用，但 runner 当前仍以顺序循环调度确定性分支；
+- ⚠️ 平台适配的本地可验证部分已落地：claude-code 事件精确映射 + openclaw params 平铺（fixture 测试）、子 Agent 派发/回传适配器（`lib/platform/subagent_dispatch.py`，全程经 transition 门控）；**在真实平台上挂载跑通端到端（launch agent → 回传 StageResult → transition）仍待验证**；
 - ⚠️ `--auto` 仅用于本地演示和测试，不应替代真实人工审批与部署。

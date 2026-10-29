@@ -69,4 +69,8 @@ echo "==> self_heal 自测..."
 python3 tests/test_self_heal.py
 echo "==> notifier 自测..."
 python3 tests/test_notifier.py
+echo "==> platform adapter 自测(P2-2)..."
+python3 tests/test_platform_adapter.py
+echo "==> tool_sandbox 自测(P2-5)..."
+python3 tests/test_tool_sandbox.py
 echo "==> Smoke test OK"

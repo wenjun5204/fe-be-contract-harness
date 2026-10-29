@@ -25,13 +25,16 @@ tool:before/tool:after 事件 payload 是平台自定义的。本模块负责:
   "report": {...}
 }
 
-⚠️ 接线状态(第一阶段):本模块提供「尽力提取」的 normalize,供平台运行时适配器调用;
-真实平台事件 → envelope 的精确映射需要在各平台运行时上验证后固化(README「现状与边界」)。
+⚠️ 接线状态:claude-code 的精确映射已固化(PreToolUse/PostToolUse/SessionStart 等
+hook_event_name → 标准事件名,fixture 测试见 tests/fixtures/platform/);openclaw
+的 params 平铺已支持;其余平台(catpaw/catclaw/codex/opencode)仍为「尽力提取」,
+待真实运行时验证后逐平台固化(README「现状与边界」)。
 """
 from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 # hook 关心的字段(顶层可识别键)
@@ -40,8 +43,44 @@ KNOWN_FIELDS = (
     "file_path", "receipt", "outputs", "checkpoint_decision", "evidence", "report",
 )
 
+# 支持的平台(platform-adapter.sh detect_platform 的输出域)
+PLATFORMS = ("generic", "openclaw", "claude-code", "catpaw", "catclaw", "codex", "opencode")
+
+# Claude Code hook_event_name → 标准事件名(fixture 固化)
+CLAUDE_CODE_HOOK_EVENTS = {
+    "PreToolUse": "tool:before",
+    "PostToolUse": "tool:after",
+    "SessionStart": "session_start",
+    "SessionEnd": "session_end",
+    "UserPromptSubmit": "user_prompt_submit",
+    "Stop": "stop",
+    "Notification": "notification",
+    "PreCompact": "pre_compact",
+}
+
+# 工具名别名:平台驼峰名 → harness 约定(小写下划线;openclaw.plugin.json match 用后者)
+_TOOL_ALIASES = {
+    "TodoWrite": "todo_write",
+    "TodoRead": "todo_read",
+    "WebFetch": "web_fetch",
+    "WebSearch": "web_search",
+}
+
+
+def _normalize_tool_name(name: Optional[str]) -> Optional[str]:
+    if not name:
+        return name
+    return _TOOL_ALIASES.get(name, name)
+
 
 def _extract_event(ev: dict) -> str:
+    # claude-code 精确映射:hook_event_name(PreToolUse 等)→ 标准事件名
+    hook_event = ev.get("hook_event_name") or ev.get("hookEventName")
+    if isinstance(hook_event, str):
+        mapped = CLAUDE_CODE_HOOK_EVENTS.get(hook_event)
+        if mapped:
+            return mapped
+        return hook_event  # 平台新增的 hook 事件名:小写透传
     for k in ("event", "type", "kind"):
         v = ev.get(k)
         if isinstance(v, str):
@@ -53,18 +92,18 @@ def _extract_tool(ev: dict) -> Optional[str]:
     for k in ("tool", "tool_name", "toolName", "name"):
         v = ev.get(k)
         if isinstance(v, str):
-            return v
+            return _normalize_tool_name(v)
     # 某些平台把工具名放 input 里
-    inp = ev.get("input") or ev.get("tool_input") or ev.get("arguments") or {}
+    inp = ev.get("input") or ev.get("tool_input") or ev.get("arguments") or ev.get("params") or {}
     if isinstance(inp, dict):
         for k in ("tool", "name"):
             if isinstance(inp.get(k), str):
-                return inp[k]
+                return _normalize_tool_name(inp[k])
     return None
 
 
 def _extract_input(ev: dict) -> dict:
-    inp = ev.get("input") or ev.get("tool_input") or ev.get("arguments") or {}
+    inp = ev.get("input") or ev.get("tool_input") or ev.get("arguments") or ev.get("params") or {}
     return inp if isinstance(inp, dict) else {}
 
 
@@ -117,9 +156,12 @@ def main(argv=None) -> int:
 
     p = argparse.ArgumentParser(description="平台事件 → 标准 envelope 适配")
     p.add_argument("--platform", default="generic")
-    p.add_argument("--event-json", help="原始平台事件 JSON(否则读 stdin)")
+    p.add_argument("--event", help="原始平台事件 JSON 文件路径")
+    p.add_argument("--event-json", help="原始平台事件 JSON 字符串(与 --event 二选一,缺省读 stdin)")
     args = p.parse_args(argv)
-    if args.event_json:
+    if args.event:
+        raw = json.loads(Path(args.event).read_text(encoding="utf-8"))
+    elif args.event_json:
         raw = json.loads(args.event_json)
     else:
         raw = json.load(sys.stdin)

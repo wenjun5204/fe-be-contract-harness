@@ -1,0 +1,11 @@
+{
+  "event": "tool:before",
+  "platform": "openclaw",
+  "tool": "git_commit",
+  "session_id": "oc-456",
+  "params": {
+    "contract": "examples/petstore.yaml",
+    "stack": "node",
+    "gen_dir": "gen/node"
+  }
+}

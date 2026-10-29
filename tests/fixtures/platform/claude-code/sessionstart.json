@@ -1,0 +1,6 @@
+{
+  "session_id": "cc-abc123",
+  "cwd": "/Users/dev/project/fe-be-contract-harness",
+  "hook_event_name": "SessionStart",
+  "source": "startup"
+}

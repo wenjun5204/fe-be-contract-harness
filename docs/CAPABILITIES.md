@@ -30,9 +30,9 @@
 
 | 能力 | 说明 | 完成度 | 落点 |
 |---|---|---|---|
-| 工具注册表 + 参数校验 | 工具是显式清单,不是任意 shell | ✅ | `tool_registry`(8 工具 + schema 校验) |
+| 工具注册表 + 参数校验 | 工具是显式清单,不是任意 shell | ✅ | `tool_registry`(9 工具 + schema 校验) |
 | 工具沙箱边界 | 读写限制工作区内,防越界 | ✅ | read/write_file 有 `safe_join`;任务输入路径经 `_safe_task_path` 拦注入形态(..逃逸/空字节/shell 元字符) |
-| 执行类工具隔离 | 跑测试/构建需白名单+超时+输出截断 | ❌ | 当前 8 工具全是读/检索类;引入执行类前必须先做(P2-5) |
+| 执行类工具隔离 | 跑测试/构建需白名单+超时+输出截断 | ✅ | `run_check` 工具 + `tool_sandbox`:命令来自栈 adapter LINT/BUILD/TEST 白名单(LLM 不可控,参数无命令字段);list-args 无 shell;超时 120s(上限 600);输出头 2000+尾 1000 截断 |
 | ACI 输出纪律 | 工具输出紧凑、错误信息可行动 | ✅ | read_file 翻页/截断、query_symbols top-20 |
 
 ## 第 4 层：LLM 交互（内循环）
@@ -80,7 +80,7 @@
 | 能力 | 说明 | 完成度 | 落点 |
 |---|---|---|---|
 | 一键安装 | clone 后 pip install 能跑;进阶为发版到包管理器 | ⚠️ | clone+requirements 可跑;PyPI 未发(资源路径需改 `importlib.resources`) |
-| 平台适配 | 真实平台能挂载 | ⚠️ | hooks 已有,`event_adapter` 映射未在真实平台验证(P2-2) |
+| 平台适配 | 真实平台能挂载 | ⚠️ | claude-code 事件精确映射 + openclaw params 平铺已固化(fixture 测试);子 Agent 派发/回传适配器已落地(`lib/platform/subagent_dispatch.py`,全程经 transition);真实平台挂载验证待做(P2-2) |
 | 端到端演示 | 5 分钟体验 | ✅ | `npm run demo` |
 | 文档完备 | README/架构/贡献/安全 | ✅ | 全齐(含 CHANGELOG/ARCHITECTURE/CAPABILITIES) |
 
@@ -89,9 +89,9 @@
 ## 总览：按完备度排序
 
 ```text
-已过硬(可当卖点):   状态门控层(含 DAG 驱动编排)、信任链、工具沙箱、LLM 内循环、观测体系、回归防线、知识回流
-半成品(零件在待接线): 跨run对比、平台验证、PyPI
-缺口(需要时再做):     执行类工具+沙箱(P2-5)、LLM 摘要 condenser(P2-1)
+已过硬(可当卖点):   状态门控层(含 DAG 驱动编排)、信任链、工具沙箱(含执行类隔离)、LLM 内循环、观测体系、回归防线、知识回流
+半成品(零件在待接线): 跨run对比、平台挂载端到端验证、PyPI 发版
+缺口(需要时再做):     LLM 摘要 condenser(P2-1)
 ```
 
 **两个战略观察**：

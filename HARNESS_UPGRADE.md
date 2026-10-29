@@ -85,10 +85,10 @@
 | # | 改动 | 前置条件 | 状态 |
 |---|---|---|---|
 | P2-1 | condenser LLM 摘要版（被空洞化轮次摘要成 recap） | P1-1 确定性版实测不够用 | ⏳ |
-| P2-2 | platform/event_adapter 精确映射 + 各平台 fixture 测试 | 需真实平台（Claude Code/OpenClaw）运行时逐个验证 | ⏳ |
+| P2-2 | platform/event_adapter 精确映射 + 各平台 fixture 测试 | 需真实平台（Claude Code/OpenClaw）运行时逐个验证 | 🔶 claude-code 精确映射（hook_event_name/工具名别名/tool_input 平铺）+ openclaw params 平铺已 fixture 固化；子 Agent 派发/回传适配器 `lib/platform/subagent_dispatch.py` 落地（CLI 模式 prompt 内嵌门控命令 / 回调模式经 transition，伪造 receipt fail-closed 有测）；真实平台挂载端到端验证仍待 |
 | P2-3 | trajectory 驱动 evals 回放：mock 重放断言门控行为不变（gate regression） | P0-5 已落盘，可直接开工 | ✅ |
 | P2-4 | coverage_gate 强拦接 checkpoint（低于阈值 → checkpoint_pending 而非 fail） | P0-6 真实覆盖率数据稳定后校准阈值 | ⏳ |
-| P2-5 | 工具执行沙箱（若未来引入执行类工具） | 当前 7+1 工具无执行能力，暂不需要 | ⏳ |
+| P2-5 | 工具执行沙箱（执行类工具） | 无（纯本地） | ✅ `run_check` 工具 + `lib/tool_sandbox.py`：命令来自栈 adapter LINT/BUILD/TEST 白名单（LLM 不可控，参数无命令字段）；list-args 无 shell（白名单命令含元字符即拒绝）；超时 120s（上限 600，超时 kill）；输出头 2000+尾 1000 截断；exit_code 如实返回可作 evidence（7 组测试含超时/截断/元字符拒绝/工具层接线） |
 | P2-6 | 产物 Hash 校验：codegen-manifest 记录产物 sha256；`_validate_evidence` 校验 hash（产物存在≠内容未被篡改） | 无（纯本地） | ✅ |
 | P2-7 | 评测集扩充（规则重放）：补空响应端点/$ref/enum/array/跨栈一致性 case，断言从 routes 集合扩到产物内容 | 无（纯本地） | ✅ |
 
@@ -152,7 +152,15 @@ npm run demo
   - P2-7 评测集扩充：petstore 1 case → 3 case（binary-ping 空响应端点回归、ref-enum-array $ref/enum/嵌套 array + 跨栈一致性断言、产物 hash 完整性）。已验证：撤掉 java void 修复时 binary-ping case 让评测崩溃退出。
   - P2-3 门控行为回放：`evals/replay_gates.py` 5 场景（正常交付/空转 failed/缺产出 gate_blocked/瞬时错误重试恢复/前置未就绪 blocked），mock 确定性重放断言 fail-closed 语义不变，已接进 smoke-test（CI 每次跑）。
 - ✅ 审计孤儿模块清零：smart_retry / self_heal / experience / code_graph / coverage_collector / planner / parallel_wave_scheduler / fail_stage / retry_stage 全部接入执行主链
-- ✅ 测试从 139 → 165+；ruff + pytest + smoke（含 evals 3/3 + replay 5/5）+ demo 全绿
+- ✅ 测试从 139 → 181；ruff + pytest + smoke（含 evals 3/3 + replay 5/5）+ demo 全绿
+- ✅ P2-5 执行类工具 + 沙箱（2026-10-29）：`run_check` 工具 + `lib/tool_sandbox.py`
+  （白名单命令来自栈 adapter、LLM 参数无命令字段、list-args 无 shell、超时 kill、
+  输出截断、exit_code 可作 evidence），7 组测试含元字符拒绝与工具层接线
+- ✅ P2-2 本地可验证部分（2026-10-28）：event_adapter claude-code 精确映射 + openclaw
+  params 平铺 + fixture 测试；`lib/platform/subagent_dispatch.py` 子 Agent 派发
+  （build_subagent_task：prompt 注入角色/required_outputs/receipt/transition 命令）
+  与 StageResult 回传（apply_stage_result：register → start → complete 全门控，
+  张冠李戴 receipt / 缺产出 fail-closed 有测）；已接进 smoke-test
 
 **下一步候选**（按建议优先级）：
 1. 推送 + 合并 feature 分支回 main
@@ -177,12 +185,15 @@ npm run demo
 | --live mock 演练 | ✅ 12/12，7 个 LLM 阶段全部经 tool calling 主循环真实过门，trajectory 落盘 |
 | KPI 首份真实数据 | success_rate 1.0；llm: 7 阶段 9 tool_calls 0 失败 |
 
-### 真实使用暴露的发现（已修 3 项，待做 1 项）
+### 真实使用暴露的发现（已修 5 项，全部闭环）
 
-1. **--live + --auto 语义缺口**（⏳ 待做）：live 模式下 auto 跳过语义完全失效
+1. **--live + --auto 语义缺口**（✅ 2026-10-28 已修）：live 模式下 auto 跳过语义完全失效
    （`auto and not live`），mock 演练无法只跑部分阶段——要求 mock 脚本覆盖
-   全部 9 个 LLM 阶段。候选改进：mock 脚本缺某阶段时降级为 auto skip，或加
-   --stages 过滤参数。
+   全部 9 个 LLM 阶段。修复：`--live --auto --llm-runtime mock` 时，脚本未覆盖的
+   阶段降级为 auto skip（skip 事件 detail 注明"降级 auto 跳过"，审计可见）；
+   顶层数组脚本仍视为覆盖全部阶段；非 mock 运行时与未提供脚本不降级（报错保持
+   fail-closed）。回归：`test_live_auto_mock_partial_script_degrades_to_skip`
+   （仅覆盖 Stage 4 的部分演练，12/12 终态零 blocked）。
 2. **Stage 1 需求机验门报错不可行动**（✅ 2026-10-27 已修）：正确构造合法 spec
    需 4 轮试错。修复：每条机验报错附"期望形态 + 当前实际值"（如
    quality_gate 期望 "passed" 而非 "pass"）；新增 `requirements_spec.py
@@ -195,3 +206,12 @@ npm run demo
    失败路径套 `_isolated_fail_side_effects` 上下文（重定向采集池+经验目录）；
    追查发现 replay_gates.py 也是污染源（回放场景守卫采集池却自己污染它），
    同样隔离。全链路验证:replay/smoke/demo 后采集池 0 条——只收真实 run 素材。
+5. **E2 知识库被测试污染**（✅ 2026-10-29 已修，发现 #4 的姊妹问题）：
+   `test_drift_check` 触发真实漂移但未隔离知识库——drift_check 的 E2 回流
+   把测试夹具噪音（`only_one_route`）写进 `config/domain-knowledge/backend/`
+   （与 E1 同类：E2 专测有隔离，普通漂移测试没有；幂等 replace 掩盖了
+   累积，靠 mtime 才发现）。修复：抽 `_isolated_kb` 上下文管理器，
+   所有触发漂移的测试统一套用；全量 pytest 后 `config/domain-knowledge/`
+   零新增/零改动（逐文件 bisect 验证）。遗留：已被污染写入的
+   `drift-node-petstore.md` 为测试噪音，应删除（E2 采集口径同 E1——
+   只收真实 run 素材）。

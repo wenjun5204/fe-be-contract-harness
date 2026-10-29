@@ -6,7 +6,8 @@ checkpoint + evidence 全门控)。runner 不再直接写 state.json。
 
 - 确定性阶段(0 / 5A / 5B / 6 / 10)真实执行,经 transition 完成
 - LLM 阶段(3 / 4 / 7 / 8 / 9)签发委派指令(dispatch directive),不完成
-- --auto 演示模式:LLM 阶段显式带批准跳过(record skip),checkpoint 自动 approve
+- --auto 演示模式:LLM 阶段显式带批准跳过(record skip),checkpoint 自动 approve;
+  与 --live + mock 组合时,脚本未覆盖的 LLM 阶段降级为 auto skip(部分演练)
 - 非 auto 模式:checkpoint 阶段停在 checkpoint_pending;前置未就绪的推进会被
   transition 真实阻断(不可绕过的体现)
 - --live 模式:LLM 阶段经 tool calling 主循环真实执行(lib/llm_dispatch),
@@ -291,6 +292,18 @@ def _start_then_complete(state_file: Path, stage: str, **kwargs) -> dict:
     return complete_stage(state_file, stage, **kwargs)
 
 
+def _mock_covers_stage(llm_script: str | Path, stage: str) -> bool:
+    """mock 脚本是否覆盖某阶段(与 _build_stage_client 的解析口径一致)。
+
+    - {"stages": {<stage>: [...]}} 分阶段格式:看该 stage 是否有步骤
+    - 顶层数组脚本:全部阶段共用同一份步骤 → 恒覆盖
+    """
+    data = json.loads(Path(llm_script).read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        return True
+    return stage in (data.get("stages") or {})
+
+
 def _build_stage_client(llm_runtime: str, llm_script: Optional[str | Path], stage: str):
     """为某个 LLM 阶段构造运行时客户端。mock 脚本支持 {"stages": {<stage>: [...]}} 分阶段。"""
     if llm_runtime == "openai":
@@ -503,8 +516,18 @@ def run(
         elif sid == "10":
             _stage_delivery()
         else:  # LLM 阶段(1/2/3/4/7/8/9)
-            if auto and not live:
+            # --live + --auto 降级语义(真实首跑发现 #1):mock 脚本未覆盖的阶段
+            # 降级为 auto skip,而不是强制脚本覆盖全部 9 个 LLM 阶段——mock 演练
+            # 可以只跑感兴趣的几个阶段。非 mock 运行时不降级(真实执行必须覆盖);
+            # 未提供脚本仍报错(要求 live 却不给脚本属于调用错误)。
+            mock_uncovered = (
+                live and auto and llm_runtime == "mock"
+                and llm_script is not None and not _mock_covers_stage(llm_script, sid)
+            )
+            if (auto and not live) or mock_uncovered:
                 sub, reason = planned_skips[sid]
+                if mock_uncovered:
+                    reason = f"mock 脚本未覆盖本阶段,降级 auto 跳过: {reason}"
                 _try_transition(
                     state_file,
                     lambda sid=sid, sub=sub, reason=reason: skip_stage(
