@@ -212,6 +212,6 @@ npm run demo
    （与 E1 同类：E2 专测有隔离，普通漂移测试没有；幂等 replace 掩盖了
    累积，靠 mtime 才发现）。修复：抽 `_isolated_kb` 上下文管理器，
    所有触发漂移的测试统一套用；全量 pytest 后 `config/domain-knowledge/`
-   零新增/零改动（逐文件 bisect 验证）。遗留：已被污染写入的
-   `drift-node-petstore.md` 为测试噪音，应删除（E2 采集口径同 E1——
-   只收真实 run 素材）。
+   零新增/零改动（逐文件 bisect 验证）。已删除曾被污染写入的
+   `drift-node-petstore.md`（测试噪音，E2 采集口径同 E1——只收真实
+   run 素材；commit a7b6321，删除后全量 pytest 181 通过验证隔离生效）。
