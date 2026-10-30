@@ -13,8 +13,8 @@ echo "=== fe-be-contract-harness 端到端演示 ==="
 echo "契约: $CONTRACT"
 echo ""
 
-echo "[1/6] 四栈代码生成"
-for s in react vue node java; do
+echo "[1/6] 六栈代码生成"
+for s in react vue react_native expo node java; do
   python3 lib/contract/cli.py generate "$CONTRACT" --stack "$s" --out "$WORK/$s" >/dev/null
   n=$(find "$WORK/$s" -type f | wc -l | tr -d ' ')
   echo "  ✓ $s ($n 个文件)"
@@ -22,7 +22,7 @@ done
 
 echo ""
 echo "[2/6] G1 生成门(幂等 + 结构忠实)"
-for s in react vue node java; do
+for s in react vue react_native expo node java; do
   python3 lib/contract/cli.py verify "$CONTRACT" --stack "$s" >/dev/null
   echo "  ✓ $s"
 done
@@ -30,7 +30,7 @@ done
 echo ""
 echo "[3/6] 跨栈一致性(后端/前端三方一致)"
 python3 lib/contract/cli.py check "$CONTRACT" >/dev/null
-echo "  ✓ 4 栈 manifest 覆盖一致"
+echo "  ✓ 6 栈 manifest 覆盖一致"
 
 echo ""
 echo "[4/6] 状态机推进(唯一 transition 入口,门控闭环)"

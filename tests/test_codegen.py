@@ -16,7 +16,7 @@ EXAMPLE = Path(__file__).resolve().parent.parent / "examples" / "petstore.yaml"
 
 def test_available_stacks():
     stacks = available()
-    assert set(stacks) == {"react", "vue", "node", "java"}, stacks
+    assert set(stacks) == {"react", "vue", "react_native", "expo", "node", "java"}, stacks
 
 
 def test_react_generate():
@@ -59,6 +59,30 @@ def test_vue_generate():
     assert "getPetById(petId: string)" in files["src/api/client.ts"]
 
 
+def test_react_native_generate():
+    files = generate(EXAMPLE, "react_native")
+    assert "src/types/api.ts" in files
+    assert "src/api/client.ts" in files
+    assert "codegen-manifest.json" in files
+    types = files["src/types/api.ts"]
+    client = files["src/api/client.ts"]
+    assert "interface Pet" in types
+    assert "listPets" in client and "getPetById(petId: string)" in client
+    assert "Pet[]" in client
+    assert "from '../types/api'" in client
+    # RN 请求层 TODO 指向全局 fetch
+    assert "fetch" in client
+
+
+def test_expo_generate_same_shape_as_react_native():
+    # Expo 与裸 RN 生成产物同构(仅 manifest 中的 stack 名不同)
+    rn, expo = generate(EXAMPLE, "react_native"), generate(EXAMPLE, "expo")
+    assert rn.keys() == expo.keys()
+    for k in rn:
+        if k != "codegen-manifest.json":
+            assert rn[k] == expo[k], k
+
+
 def test_java_generate():
     files = generate(EXAMPLE, "java")
     assert "src/main/java/dto/Pet.java" in files
@@ -72,7 +96,7 @@ def test_java_generate():
 
 
 def test_verify_gate():
-    for stack in ("react", "vue", "node", "java"):
+    for stack in ("react", "vue", "react_native", "expo", "node", "java"):
         r = verify(EXAMPLE, stack)
         assert r["ok"], r
 
@@ -96,7 +120,7 @@ def test_no_json_response_endpoint():
     with tempfile.TemporaryDirectory() as d:
         cpath = Path(d) / "no-resp.json"
         cpath.write_text(json.dumps(contract), encoding="utf-8")
-        for stack in ("react", "vue", "node", "java"):
+        for stack in ("react", "vue", "react_native", "expo", "node", "java"):
             files = generate(cpath, stack)
             rendered = "\n".join(str(f) for f in files.values())
             assert "get_img" in rendered and "get_ping" in rendered, (stack, rendered)
@@ -112,10 +136,12 @@ def main():
     test_react_generate()
     test_node_generate()
     test_vue_generate()
+    test_react_native_generate()
+    test_expo_generate_same_shape_as_react_native()
     test_java_generate()
     test_verify_gate()
     test_no_json_response_endpoint()
-    print("OK: codegen 自测通过(7 组断言)")
+    print("OK: codegen 自测通过(9 组断言)")
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ name: harness-demo
 version: "0.1.0"
 platforms: ["catpaw", "catclaw", "claude-code", "codex", "openclaw", "opencode"]
 skills: ["fe-be-contract-workflow"]
-description: 运行端到端演示(四栈生成→G1门→一致性→状态机→门控)
+description: 运行端到端演示(六栈生成→G1门→一致性→状态机→门控)
 argument-hint: [contract, 默认 examples/petstore.yaml]
 allowed-tools: Bash
 ---

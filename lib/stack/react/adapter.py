@@ -17,7 +17,7 @@ class ReactStackAdapter(StackAdapter):
     BUILD = ["tsc && vite build"]
     TEST = ["vitest run"]
     COVERAGE = "vitest run --coverage"
-    MARKERS = ["vite.config.ts", "src/App.tsx"]
+    MARKERS = ["vite.config.ts"]  # src/App.tsx 与 RN TS 工程同名,不能作为 Web 独有标记
     DEPLOY = ["static"]
 
     def generate(self, model: dict) -> List[GeneratedFile]:

@@ -45,7 +45,7 @@ flowchart TB
         Verify["verify.py(G1)"]
         Cons["consistency.py(跨栈)"]
         Drift["live_check.py(漂移)"]
-        Stacks["stack/{react,vue,node,java}"]
+        Stacks["stack/{react,vue,react_native,expo,node,java}"]
     end
 
     subgraph 持久层
@@ -287,6 +287,6 @@ flowchart LR
 2. **fail-closed**：LLM 阶段不调 `report_outputs` → 永远无法完成;失败路径全部收敛 `fail_stage`(可 retry),无伪完成
 3. **receipt 一次性**：签发 → 登记 → 消费,终态后不可重放
 4. **汇合点不可跳**：6/9 永不 skip,FSM 兜底
-5. **跨栈一致**：同一契约语义四栈行为一致(如 ts_type/java_type 的 void 对齐),evals 断言
+5. **跨栈一致**：同一契约语义各栈行为一致(如 ts_type/java_type 的 void 对齐),evals 断言
 6. **产物完整性**：生成产物带 sha256,evidence 校验内容而非仅存在
 7. **LLM 侧改动 mock 可测**：所有行为(condenser/nudge/重试/经验注入)须 MockLLMClient 下确定性回归

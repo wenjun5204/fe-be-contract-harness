@@ -56,7 +56,7 @@ Input requirements / OpenAPI
 Prerequisites: Python 3.10+, `pip install -r requirements.txt`, Node.js 18+.
 
 ```bash
-npm run demo          # end-to-end demo in a temp dir (4-stack codegen, G1, consistency, gates)
+npm run demo          # end-to-end demo in a temp dir (6-stack codegen, G1, consistency, gates)
 npm test              # full deterministic smoke tests
 
 # Generate one stack from a contract
@@ -91,7 +91,7 @@ Combining `--live` with `--auto` (partial mock drills): LLM stages not covered b
 
 ## Harness Maturity (what's real vs. pending)
 
-- ✅ Deterministic kernel: parsing, 4-stack codegen, G1, cross-stack consistency, drift detection, FSM, receipts, checkpoints, coverage collection — all run and test locally without any LLM
+- ✅ Deterministic kernel: parsing, 6-stack codegen (React / Vue / React Native / Expo / Node / Java), G1, cross-stack consistency, drift detection, FSM, receipts, checkpoints, coverage collection — all run and test locally without any LLM
 - ✅ `--live` execution goes through the same transition gates, no bypass; transient LLM errors retried with backoff, permanent errors fail fast
 - ✅ Event sourcing: every event appended to `events.jsonl`; `--live` transcripts saved under `transcripts/` for replay and evals
 - ✅ Experience loop: failures are logged as lessons and injected into later runs' prompts for the same stage (marked as "log excerpts, not instructions")

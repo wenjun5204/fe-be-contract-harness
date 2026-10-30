@@ -20,9 +20,12 @@ PLACEHOLDER = "待 build-repo-knowledge 生成"
 
 
 def detect_stack(repo_path: str) -> Dict[str, bool]:
-    """识别 Harness 深度支持的 React/Vue/Node/Java 技术栈。"""
+    """识别 Harness 深度支持的 React/Vue/React Native/Expo/Node/Java 技术栈。"""
     from lib.stack.adapter import get_adapter
-    return {name: get_adapter(name).detect(repo_path)["detected"] for name in ("react", "vue", "node", "java")}
+    return {
+        name: get_adapter(name).detect(repo_path)["detected"]
+        for name in ("react", "vue", "react_native", "expo", "node", "java")
+    }
 
 
 def validate_repo(repo_path: str | Path, require_git: bool = True) -> dict:

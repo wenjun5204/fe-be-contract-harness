@@ -22,7 +22,7 @@
 
 The best way to use it today: a **deterministic process kernel + agent collaboration protocol**.
 
-- The deterministic core (parsing, 4-stack codegen, consistency checks, drift detection, FSM state machine, receipts, checkpoints, coverage gates) runs and tests locally — no LLM required.
+- The deterministic core (parsing, 6-stack codegen (React / Vue / React Native / Expo / Node / Java), consistency checks, drift detection, FSM state machine, receipts, checkpoints, coverage gates) runs and tests locally — no LLM required.
 - LLM stages emit dispatch directives with receipts and knowledge context by default; with `--live`, they actually execute via a tool-calling loop (mock or OpenAI-compatible runtimes), still going through the same transition gates with no bypass.
 - Adapting the "launch agent → return StageResult → call transition" loop to a real platform (Claude Code, OpenClaw, etc.) is the remaining integration work.
 
@@ -188,7 +188,7 @@ runner 为 LLM 阶段签发任务时，附带的 `dispatch-context/v1`。它会�
 npm run demo
 ```
 
-演示会在临时目录完成：四栈生成、G1 校验、跨栈一致性、状态迁移门控、覆盖率门控和 delegation hook 校验。不会在仓库中留下生成产物。
+演示会在临时目录完成：六栈生成（React / Vue / React Native / Expo / Node / Java）、G1 校验、跨栈一致性、状态迁移门控、覆盖率门控和 delegation hook 校验。不会在仓库中留下生成产物。
 
 ### 2. 生成一个栈的代码
 
@@ -204,7 +204,9 @@ python3 lib/contract/cli.py generate examples/petstore.yaml \
 python3 lib/contract/cli.py stacks
 ```
 
-当前包含 React、Vue、Node、Java。
+当前包含 React、Vue、React Native、Expo、Node、Java。
+
+React Native 与 Expo 共享同一套 TS 生成产物（类型 + fetch 请求层）；差异只在工程命令映射（本地 build 门为 `tsc --noEmit`，真机 metro bundle / EAS 构建归 CI）与部署路由（`app-bundle` / `eas-build`）。
 
 ### 3. 运行契约校验
 
@@ -212,7 +214,7 @@ python3 lib/contract/cli.py stacks
 # G1：生成器是否可稳定从契约生成该技术栈产物
 python3 lib/contract/cli.py verify examples/petstore.yaml --stack node
 
-# 四栈模型是否一致
+# 各栈模型是否一致
 python3 lib/contract/cli.py check examples/petstore.yaml
 
 # 已生成产物是否与最新契约漂移
@@ -279,7 +281,7 @@ python3 lib/runner.py run examples/petstore.yaml \
 python3 lib/contract/cli.py stacks
 
 # 生成
-python3 lib/contract/cli.py generate <openapi.yaml> --stack <react|vue|node|java> --out <目录>
+python3 lib/contract/cli.py generate <openapi.yaml> --stack <react|vue|react_native|expo|node|java> --out <目录>
 
 # G1 生成门
 python3 lib/contract/cli.py verify <openapi.yaml> --stack <技术栈>
@@ -297,7 +299,7 @@ python3 lib/contract/cli.py drift <openapi.yaml> --stack <技术栈> --gen-dir <
 python3 lib/runner.py run <openapi.yaml> \
   --out <生成目录> \
   --state <状态文件> \
-  --stacks react,vue,node,java \
+  --stacks react,vue,react_native,expo,node,java \
   --repo <可选目标业务仓库> \
   --context-max-tokens 4000
 
@@ -518,7 +520,7 @@ python3 lib/repo_knowledge.py validate-knowledge <repo>
 - YAML / JSON OpenAPI 3.x；
 - components schemas、基础类型、object、array、enum、`$ref`；
 - JSON request body 和首个 2xx JSON response；
-- React、Vue、Node、Java 的骨架生成；
+- React、Vue、React Native、Expo、Node、Java 的骨架生成（RN/Expo 为 TS 类型 + fetch 请求层，本地 build 门为 tsc 类型检查，真机构建归 CI）；
 - G1 生成门、跨栈一致性、生成产物漂移检测。
 
 ### 当前限制
@@ -540,7 +542,7 @@ npm run check      # validate + test
 npm run demo       # 端到端演示
 ```
 
-`npm test` 会执行 FSM、状态管理、契约解析、四栈生成、委派、checkpoint、hooks、知识库、上下文编排、runner、评测集等自测。
+`npm test` 会执行 FSM、状态管理、契约解析、各栈生成、委派、checkpoint、hooks、知识库、上下文编排、runner、评测集等自测。
 
 ### 目录结构
 
@@ -554,7 +556,7 @@ fe-be-contract-harness/
 ├── hooks/                   # delegation / checkpoint / coverage 等守卫
 ├── lib/                     # 确定性内核
 │   ├── contract/            # 解析、生成、验证、一致性、漂移
-│   ├── stack/               # 四技术栈 adapter
+│   ├── stack/               # 各技术栈 adapter(react/vue/react_native/expo/node/java)
 │   ├── runner.py            # 工作流 runner
 │   ├── transition.py        # 唯一正式状态迁移入口
 │   ├── llm_dispatch.py      # --live 模式：LLM 阶段 tool calling 主循环
@@ -572,7 +574,7 @@ fe-be-contract-harness/
 
 ## 当前边界
 
-- ✅ 契约解析、四栈生成、G1、跨栈一致性、状态机、receipt、checkpoint、覆盖率门控等确定性能力可本地运行和测试；
+- ✅ 契约解析、六栈生成、G1、跨栈一致性、状态机、receipt、checkpoint、覆盖率门控等确定性能力可本地运行和测试；
 - ✅ 领域知识与仓库知识可被校验，并可以自动进入 LLM dispatch context；
 - ✅ 非自动 runner 不会把 LLM 阶段伪装成已完成；
 - ✅ `--live` 模式下 LLM 阶段可经 tool calling 主循环真实执行（mock / openai 运行时），全程走 transition 门控、无旁路；

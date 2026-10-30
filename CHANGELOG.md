@@ -7,6 +7,16 @@
 
 ## [Unreleased]
 
+### Added
+- **React Native / Expo 全流程支持（第 5/6 栈）**：新增 `react_native` 与 `expo`（RN 的 Expo 托管工作流子类适配器）两个 StackAdapter，共享 React 的 OpenAPI→TS 映射，生成 `src/types/api.ts` + `src/api/client.ts`（fetch 请求层）。
+  - 工程命令映射：LINT = `eslint src --ext .ts,.tsx` + `tsc --noEmit`，BUILD 门 = `tsc --noEmit`（类型检查，真机 metro bundle / EAS 构建归 CI），TEST/COVERAGE = jest；部署路由 `app-bundle` / `eas-build`（仅登记）。
+  - 工程识别：裸 RN 以 `ios/Podfile` / `android/app` / `metro.config.js` 为标记，Expo 以 `app.config.{js,ts}` 独有标记识别。
+  - 全链路接线：runner 5B 前端波、`repo_knowledge.detect_stack`、跨栈一致性默认栈集、`tool_registry` 的 `verify_codegen`/`run_check` stack enum、`delegation-policy.json` 5B.by_stack → 新增 `codegen/rn-codegen` Agent（含 agent.json/prompt.md）。
+  - 评测集与测试同步扩展至六栈（test_codegen/test_consistency/test_delegation/test_repo_knowledge/test_runner/evals），demo 脚本六栈生成演示。
+
+### Fixed
+- **react 栈工程识别误判**：MARKERS 中的 `src/App.tsx` 与 RN TS 工程同名文件冲突，会把 RN 项目误判为 React Web；收紧为 `vite.config.ts` 单标记（vite 为 Web 独有）。
+
 ## [0.2.0] - 2026-10-23
 
 ### Added

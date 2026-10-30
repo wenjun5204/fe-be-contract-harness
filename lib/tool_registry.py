@@ -314,7 +314,7 @@ def build_default_tools(
             "type": "object",
             "properties": {
                 "contract": {"type": "string", "description": "契约文件路径"},
-                "stack": {"type": "string", "enum": ["react", "vue", "node", "java"]},
+                "stack": {"type": "string", "enum": ["react", "vue", "react_native", "expo", "node", "java"]},
                 "out_dir": {"type": "string", "description": "生成物目录"},
             },
             "required": ["contract", "stack", "out_dir"],
@@ -396,7 +396,7 @@ def build_default_tools(
             "properties": {
                 "kind": {"type": "string", "enum": ["lint", "build", "test"],
                          "description": "校验类型:lint=静态检查,build=构建,test=测试"},
-                "stack": {"type": "string", "enum": ["react", "vue", "node", "java"]},
+                "stack": {"type": "string", "enum": ["react", "vue", "react_native", "expo", "node", "java"]},
                 "timeout": {"type": "integer", "description": "超时秒数,缺省 120,上限 600"},
             },
             "required": ["kind", "stack"],

@@ -412,7 +412,7 @@ def run(
 
     # ---- 确定性阶段 handler(每阶段的实体工作) ----
     backend = [s for s in stacks if s in ("node", "java")]
-    frontend = [s for s in stacks if s in ("react", "vue")]
+    frontend = [s for s in stacks if s in ("react", "vue", "react_native", "expo")]
 
     def _stage_init() -> None:
         _try_transition(

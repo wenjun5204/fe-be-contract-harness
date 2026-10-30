@@ -47,7 +47,7 @@ def test_manifest_coverage():
 def test_cross_stack():
     r = cross_stack_check(EXAMPLE)
     assert r["ok"], r
-    assert set(r["per_stack"].keys()) == {"react", "vue", "node", "java"}
+    assert set(r["per_stack"].keys()) == {"react", "vue", "react_native", "expo", "node", "java"}
     for s, v in r["per_stack"].items():
         assert v["routes_ok"] and v["models_ok"], (s, v)
 

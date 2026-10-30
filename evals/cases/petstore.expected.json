@@ -1,5 +1,19 @@
 {
-  "routes": ["listPets", "createPet", "getPetById"],
-  "models": ["Pet", "CreatePet"],
-  "stacks": ["react", "vue", "node", "java"]
+  "routes": [
+    "listPets",
+    "createPet",
+    "getPetById"
+  ],
+  "models": [
+    "Pet",
+    "CreatePet"
+  ],
+  "stacks": [
+    "react",
+    "vue",
+    "react_native",
+    "expo",
+    "node",
+    "java"
+  ]
 }

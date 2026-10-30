@@ -61,11 +61,11 @@ def run_case(name: str) -> dict:
             manifest = json.loads((Path(d) / s / "codegen-manifest.json").read_text(encoding="utf-8"))
             hash_ok[s] = bool(manifest.get("artifacts"))
 
-    # 可选:void_routes —— 无 2xx JSON 响应的端点四栈必须渲染 void
+    # 可选:void_routes —— 无 2xx JSON 响应的端点各 TS 栈必须渲染 void
     types_ok = True
     void_routes = expected.get("void_routes")
     if void_routes:
-        for s in ("react", "vue", "java"):
+        for s in ("react", "vue", "react_native", "expo", "java"):
             actual = _rendered_types(contract, s)
             for opid in void_routes:
                 if actual.get(opid) != "void":

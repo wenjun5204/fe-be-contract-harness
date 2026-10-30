@@ -1,6 +1,21 @@
 {
-  "routes": ["get_orders", "post_orders"],
-  "models": ["Order", "CreateOrder", "OrderItem", "OrderStatus"],
-  "stacks": ["react", "vue", "node", "java"],
+  "routes": [
+    "get_orders",
+    "post_orders"
+  ],
+  "models": [
+    "Order",
+    "CreateOrder",
+    "OrderItem",
+    "OrderStatus"
+  ],
+  "stacks": [
+    "react",
+    "vue",
+    "react_native",
+    "expo",
+    "node",
+    "java"
+  ],
   "cross_stack_consistent": true
 }

@@ -62,6 +62,26 @@ def test_java_vue_receipts_match_actual_codegen_agents():
         assert (out / "vue" / "codegen-manifest.json").exists()
 
 
+def test_react_native_and_expo_frontend_wave():
+    """RN + Expo 走 5B 前端波:receipt 路由到 rn-codegen,产物落盘,无后端栈时 5A 跳过。"""
+    with tempfile.TemporaryDirectory() as d:
+        out = Path(d) / "gen"
+        state = Path(d) / "state.json"
+        r = run(EXAMPLE, out, state, ["react_native", "expo"], auto=True)
+        assert r["ok"], r
+        assert r["summary"]["done"] == 12, r["summary"]
+        st = read_state(state)["stages"]
+        assert st["5A"]["state"] == "skipped", st["5A"]
+        assert st["5B"]["state"] == "completed", st["5B"]
+        # 两栈映射同一 Agent → receipt 记 subagents 列表(与多栈并行范式一致)
+        assert st["5B"]["receipt"]["subagents"] == ["codegen/rn-codegen", "codegen/rn-codegen"], st["5B"]
+        assert (out / "react_native" / "codegen-manifest.json").exists()
+        assert (out / "expo" / "codegen-manifest.json").exists()
+        assert not [e for e in r["events"] if e["kind"] == "blocked"], r["events"]
+
+
+
+
 def test_non_auto_directives_include_budgeted_knowledge_context():
     """非 auto 派发指令应携带由契约实体、仓库文档和预算共同约束的上下文。"""
     with tempfile.TemporaryDirectory() as d:
@@ -226,13 +246,14 @@ def test_execution_plan_from_dag():
 def main():
     test_auto_mode_completes_loop()
     test_java_vue_receipts_match_actual_codegen_agents()
+    test_react_native_and_expo_frontend_wave()
     test_non_auto_directives_include_budgeted_knowledge_context()
     test_non_auto_blocks_at_unmet_prereq()
     test_rerun_is_idempotent_resume()
     test_parallel_wave_codegen_thread_safe()
     test_live_auto_mock_partial_script_degrades_to_skip()
     test_execution_plan_from_dag()
-    print("OK: runner 自测通过(8 组断言)")
+    print("OK: runner 自测通过(9 组断言)")
 
 
 if __name__ == "__main__":

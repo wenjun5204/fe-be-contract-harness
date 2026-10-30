@@ -46,7 +46,11 @@ def test_dynamic_codegen_subagents():
     assert resolve_subagents("5B", policy=policy, for_skip=True) == ["codegen/react-codegen"]
 
     assert set(allowed_subagents("5A", policy)) == {"codegen/node-codegen", "codegen/java-codegen"}
-    assert set(allowed_subagents("5B", policy)) == {"codegen/react-codegen", "codegen/vue-codegen"}
+    assert resolve_subagents("5B", ["react_native"], policy) == ["codegen/rn-codegen"]
+    assert resolve_subagents("5B", ["expo"], policy) == ["codegen/rn-codegen"]
+    assert set(allowed_subagents("5B", policy)) == {
+        "codegen/react-codegen", "codegen/vue-codegen", "codegen/rn-codegen",
+    }
     assert allowed_subagents("2", policy) == ["contract/contract-designer"]
 
     receipt = issue_receipt("5A", ["codegen/node-codegen", "codegen/java-codegen"], "tok-multi")

@@ -19,7 +19,9 @@
     "5B": {
       "by_stack": {
         "react": "codegen/react-codegen",
-        "vue": "codegen/vue-codegen"
+        "vue": "codegen/vue-codegen",
+        "react_native": "codegen/rn-codegen",
+        "expo": "codegen/rn-codegen"
       },
       "skip_subagent": "codegen/react-codegen"
     },

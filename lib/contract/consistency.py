@@ -28,7 +28,7 @@ def check_manifest_coverage(
 def cross_stack_check(contract_path: str | Path, stacks: Optional[List[str]] = None) -> dict:
     """跨栈一致性:各栈生成产物对契约的覆盖一致且完整。"""
     model = parse_contract(contract_path)
-    stacks = stacks or ["react", "vue", "node", "java"]
+    stacks = stacks or ["react", "vue", "react_native", "expo", "node", "java"]
     contract_routes = {e["operation_id"] for e in model["endpoints"]}
     contract_models = set(model["schemas"].keys())
 

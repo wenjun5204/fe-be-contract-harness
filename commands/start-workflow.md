@@ -4,7 +4,7 @@ version: "0.1.0"
 platforms: ["catpaw", "catclaw", "claude-code", "codex", "openclaw", "opencode"]
 skills: ["fe-be-contract-workflow"]
 description: 启动前后端契约驱动 SDLC 全流程(需求→契约→编码→一致性→评审→交付)
-argument-hint: [需求描述 | openapi.yaml 路径] [--stack <react|vue|node|java>]
+argument-hint: [需求描述 | openapi.yaml 路径] [--stack <react|vue|react_native|expo|node|java>]
 allowed-tools: Read, Write, Bash, Grep, Glob, TodoWrite
 ---
 
