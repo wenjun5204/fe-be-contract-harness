@@ -27,7 +27,21 @@
     },
     "6": "contract/consistency-checker",
     "7": "quality/code-review",
-    "8": "quality/test-case-generator",
+    "8": {
+      "default": "quality/test-case-generator",
+      "by_stack": {
+        "react": "quality/test-case-generator",
+        "vue": "quality/test-case-generator",
+        "react_native": "quality/test-case-generator",
+        "expo": "quality/test-case-generator",
+        "node": "quality/test-case-generator",
+        "java": "quality/test-case-generator",
+        "quality/test-executor": "quality/test-executor",
+        "quality/test-failure-analyzer": "quality/test-failure-analyzer",
+        "quality/test-fixer": "quality/test-fixer"
+      },
+      "skip_subagent": "quality/test-case-generator"
+    },
     "9": "orchestrator/deployer",
     "10": "orchestrator/notifier"
   }

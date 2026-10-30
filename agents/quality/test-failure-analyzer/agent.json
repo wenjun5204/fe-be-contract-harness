@@ -1,0 +1,15 @@
+{
+  "name": "test-failure-analyzer",
+  "agent_type": "prompt_role",
+  "role": "测试失败诊断归因器",
+  "inputs": {
+    "test_report": { "type": "object", "required": true, "description": "test-executor 产出的失败报告(含失败用例与原始输出)" },
+    "contract": { "type": "string", "required": true, "description": "OpenAPI 契约路径(判断契约符合性)" },
+    "diff": { "type": "string", "required": false, "description": "本阶段变更 diff(定位是否本阶段引入)" }
+  },
+  "outputs": {
+    "diagnosis": { "type": "object", "description": "{root_cause, failed_component, suggested_fix, case_defect, confidence}" }
+  },
+  "tools": ["bash", "read"],
+  "prompt_file": "prompt.md"
+}

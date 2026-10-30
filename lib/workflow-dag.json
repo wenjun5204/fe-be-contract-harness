@@ -69,11 +69,11 @@
       "required_outputs": ["pr_url"]
     },
     "8": {
-      "name": "测试用例生成",
+      "name": "测试用例生成与执行闭环",
       "semantic_id": "testcases",
       "next": ["9"],
       "checkpoint": "artifact_review",
-      "required_outputs": ["test_cases"]
+      "required_outputs": ["test_cases", "test_report"]
     },
     "9": {
       "name": "提测与部署",

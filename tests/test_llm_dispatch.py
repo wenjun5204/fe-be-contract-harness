@@ -70,7 +70,7 @@ def test_stage_completes_with_tool_calls():
             {"tool_calls": [{"name": "query_knowledge", "arguments": {"domain": "qa"}}]},
             {"tool_calls": [{"name": "read_contract", "arguments": {}}]},
             {"tool_calls": [{"name": "report_outputs",
-                             "arguments": {"outputs": {"test_cases": [{"id": "TC-1", "name": "创建订单"}]}}}]},
+                             "arguments": {"outputs": {"test_cases": [{"id": "TC-1", "name": "创建订单"}], "test_report": {"total": 1, "passed": 1, "failed": 0}}}}]},
         ]
         res = run_llm_stage(_directive(), sf, client=MockLLMClient(script),
                             contract_path=CONTRACT, workdir=d, auto_approve=True)
@@ -91,7 +91,7 @@ def test_checkpoint_pending_without_auto_approve():
         sf = _state_with_prereqs(d)
         script = [
             {"tool_calls": [{"name": "report_outputs",
-                             "arguments": {"outputs": {"test_cases": [{"id": "TC-1"}]}}}]},
+                             "arguments": {"outputs": {"test_cases": [{"id": "TC-1"}], "test_report": {"total": 1, "passed": 1, "failed": 0}}}}]},
         ]
         res = run_llm_stage(_directive(), sf, client=MockLLMClient(script),
                             contract_path=CONTRACT, workdir=d, auto_approve=False)
@@ -167,7 +167,7 @@ def test_tool_error_self_correction():
             {"tool_calls": [{"name": "query_knowledge", "arguments": {}}]},  # 缺 domain → ok=false
             {"tool_calls": [{"name": "query_knowledge", "arguments": {"domain": "qa"}}]},
             {"tool_calls": [{"name": "report_outputs",
-                             "arguments": {"outputs": {"test_cases": [{"id": "TC-2"}]}}}]},
+                             "arguments": {"outputs": {"test_cases": [{"id": "TC-2"}], "test_report": {"total": 1, "passed": 1, "failed": 0}}}}]},
         ]
         res = run_llm_stage(_directive(), sf, client=MockLLMClient(script),
                             contract_path=CONTRACT, workdir=d, auto_approve=True)
@@ -187,7 +187,7 @@ def test_transient_llm_error_retried():
                 self._left -= 1
                 raise self._error
             return {"tool_calls": [{"id": "c1", "name": "report_outputs",
-                                    "arguments": {"outputs": {"test_cases": [{"id": "TC-1"}]}}}]}
+                                    "arguments": {"outputs": {"test_cases": [{"id": "TC-1"}], "test_report": {"total": 1, "passed": 1, "failed": 0}}}}]}
 
     with tempfile.TemporaryDirectory() as d, _isolated_fail_side_effects(d):
         sf = _state_with_prereqs(d)
@@ -224,7 +224,7 @@ def test_final_nudge_saves_max_turns_run():
             {"tool_calls": [{"name": "read_contract", "arguments": {}}]},
             {"tool_calls": [{"name": "read_contract", "arguments": {}}]},
             {"tool_calls": [{"name": "report_outputs",
-                             "arguments": {"outputs": {"test_cases": [{"id": "TC-9"}]}}}]},
+                             "arguments": {"outputs": {"test_cases": [{"id": "TC-9"}], "test_report": {"total": 1, "passed": 1, "failed": 0}}}}]},
         ]
         res = run_llm_stage(_directive(), sf, client=MockLLMClient(script),
                             contract_path=CONTRACT, workdir=d, max_turns=3, auto_approve=True)
@@ -291,7 +291,8 @@ def test_pruned_sections_hint_pull_channel():
             def chat(self, messages, tools=None):
                 captured.append([m["content"] for m in messages])
                 return {"tool_calls": [{"id": "c1", "name": "report_outputs",
-                                        "arguments": {"outputs": {"test_cases": [{"id": "TC-1"}]}}}]}
+                                        "arguments": {"outputs": {"test_cases": [{"id": "TC-1"}],
+                                                                 "test_report": {"total": 1, "passed": 1, "failed": 0}}}}]}
 
         res = run_llm_stage(directive, sf, client=CapturingClient(),
                             contract_path=CONTRACT, workdir=d, auto_approve=True)
@@ -316,7 +317,8 @@ def test_experience_read_side_injects_lessons():
                 def chat(self, messages, tools=None):
                     captured.extend(messages)
                     return {"tool_calls": [{"id": "c1", "name": "report_outputs",
-                                            "arguments": {"outputs": {"test_cases": [{"id": "TC-1"}]}}}]}
+                                            "arguments": {"outputs": {"test_cases": [{"id": "TC-1"}],
+                                                                     "test_report": {"total": 1, "passed": 1, "failed": 0}}}}]}
 
             res = run_llm_stage(_directive(), sf, client=CapturingClient(),
                                 contract_path=CONTRACT, workdir=d, auto_approve=True)

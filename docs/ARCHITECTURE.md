@@ -235,6 +235,7 @@ flowchart TB
 | condenser | 超 60k 空洞化旧 tool result | 长对话不失忆,wire 格式不破 |
 | smart_retry | 瞬时错误退避×2,永久错误零重试 | 网络抖动自愈 |
 | max_turns=12 | 耗尽即 failed(fail-closed) | 内循环的天花板,刻意保留 |
+| 测试执行闭环 | Stage 8(P0): 执行→诊断→修复→复验,修复轮上限 3 | "写了用例"≠"跑了用例",测试不绿到不了 Stage 9 |
 
 ### 外循环（项目越跑越聪明）——三条回流管,现状与补齐
 

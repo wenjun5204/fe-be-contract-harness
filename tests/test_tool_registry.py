@@ -21,7 +21,7 @@ CONTRACT = REPO / "examples" / "petstore.yaml"
 def test_schemas_format():
     tools = build_default_tools(CONTRACT)
     schemas = tools.schemas()
-    assert len(schemas) == 9
+    assert len(schemas) == 10  # 9 + run_tests(Stage 8 闭环)
     for s in schemas:
         assert s["type"] == "function"
         fn = s["function"]
@@ -29,7 +29,7 @@ def test_schemas_format():
     names = {s["function"]["name"] for s in schemas}
     assert {"read_contract", "verify_codegen", "consistency_check",
             "query_knowledge", "read_file", "write_file", "query_symbols",
-            "run_check", "report_outputs"} == names
+            "run_check", "run_tests", "report_outputs"} == names
     # run_check 参数无命令字段(执行类工具安全底线:命令只能来自白名单)
     run_check = next(s for s in schemas if s["function"]["name"] == "run_check")
     assert set(run_check["function"]["parameters"]["properties"]) == {"kind", "stack", "timeout"}

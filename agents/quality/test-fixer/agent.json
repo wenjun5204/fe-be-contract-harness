@@ -1,0 +1,15 @@
+{
+  "name": "test-fixer",
+  "agent_type": "prompt_role",
+  "role": "测试失败修复器",
+  "inputs": {
+    "diagnosis": { "type": "object", "required": true, "description": "analyzer 产出的归因结论" },
+    "repo_path": { "type": "string", "required": true, "description": "修复目标工程根目录" }
+  },
+  "outputs": {
+    "fixed_files": { "type": "array", "description": "修改的文件清单" },
+    "fix_summary": { "type": "string", "description": "修了什么、为什么这样修" }
+  },
+  "tools": ["bash", "read", "write"],
+  "prompt_file": "prompt.md"
+}

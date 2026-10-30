@@ -54,6 +54,8 @@ def resolve_subagents(
 
     普通阶段使用字符串配置；代码生成阶段使用 `by_stack` 映射。未传 stacks 时，
     仅允许解析静态阶段，避免把候选 Agent 误当作实际执行者。
+    dict 型阶段可配 `default`:无 stacks 时的缺省执行者(如 Stage 8 的
+    test-case-generator)——by_stack 仍按栈精确解析,两者不冲突。
     """
     policy = policy if policy is not None else load_policy()
     configured = policy.get("stage_subagent", {}).get(stage_id)
@@ -64,7 +66,10 @@ def resolve_subagents(
     if for_skip:
         return _as_subagent_list(configured.get("skip_subagent"))
     by_stack = configured.get("by_stack", {})
-    return [by_stack[stack] for stack in (stacks or []) if stack in by_stack]
+    resolved = [by_stack[stack] for stack in (stacks or []) if stack in by_stack]
+    if resolved:
+        return resolved
+    return _as_subagent_list(configured.get("default"))
 
 
 def allowed_subagents(stage_id: str, policy: Optional[dict] = None) -> List[str]:

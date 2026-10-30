@@ -286,6 +286,14 @@ def _run_check_fn(workdir: Path, args: dict) -> dict:
     return run_whitelisted(args["kind"], args["stack"], workdir, args.get("timeout", 120))
 
 
+def _run_tests_fn(workdir: Path, args: dict) -> dict:
+    """Stage 8 闭环工具:执行测试并产出结构化 test_report(含门控判定)。"""
+    from lib.test_execution import execute_tests
+    report = execute_tests(args["stack"], workdir, timeout=args.get("timeout", 120))
+    # 输出里 command_results/failures 体量可控,整包返回;截断由沙箱层已做
+    return report
+
+
 # ---- 默认工具集构造 ----
 
 def build_default_tools(
@@ -402,6 +410,24 @@ def build_default_tools(
             "required": ["kind", "stack"],
         },
         fn=lambda args: _run_check_fn(workdir, args),
+    ))
+    registry.register(Tool(
+        name="run_tests",
+        description=(
+            "执行测试并产出结构化 test_report(Stage 8 闭环用):"
+            "沙箱白名单跑指定栈 TEST 命令 → 解析 jest/vitest 摘要 → "
+            "门控判定(fail-closed:无摘要/无用例均不放行)。"
+            "报告含每失败用例条目,可作诊断归因输入。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "stack": {"type": "string", "enum": ["react", "vue", "react_native", "expo", "node", "java"]},
+                "timeout": {"type": "integer", "description": "超时秒数,缺省 120,上限 600"},
+            },
+            "required": ["stack"],
+        },
+        fn=lambda args: _run_tests_fn(workdir, args),
     ))
     registry.register(Tool(
         name="report_outputs",

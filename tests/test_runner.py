@@ -123,6 +123,79 @@ def test_non_auto_blocks_at_unmet_prereq():
         assert st["1"]["state"] == "pending"
 
 
+def test_stage8_test_execution_green_path():
+    """Stage 8 确定性执行闭环:测试全绿 → complete,outputs 含 test_report。
+
+    用注入的伪 TEST 命令(本地 shell 脚本输出 jest 摘要)驱动真实执行链,
+    不依赖 node_modules 环境。
+    """
+    import stat
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        repo = root / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        out = root / "gen"
+        state = root / "state.json"
+        # 伪 jest:输出全绿摘要
+        fake = root / "fake-jest.sh"
+        fake.write_text('#!/bin/sh\necho "Tests: 4 passed, 4 total"\n', encoding="utf-8")
+        fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+        import lib.test_execution as te
+        import lib.tool_sandbox as sandbox
+        orig = sandbox._resolve_commands
+        sandbox._resolve_commands = lambda kind, stack: [str(fake)] if kind == "test" else orig(kind, stack)
+        try:
+            r = run(EXAMPLE, out, state, ["node"], auto=True, repo=repo)
+        finally:
+            sandbox._resolve_commands = orig
+        assert r["ok"], r
+        assert r["summary"]["done"] == 12, r["summary"]
+        st = read_state(state)["stages"]
+        assert st["8"]["state"] == "completed", st["8"]
+        assert st["8"]["outputs"]["test_report"], st["8"]
+        assert "node" in st["8"]["outputs"]["test_report"]
+        # 事件可审计:执行完成事件存在
+        done8 = [e for e in r["events"] if e["stage"] == "8" and e["kind"] == "done"]
+        assert done8, r["events"]
+
+
+def test_stage8_fix_rounds_exhausted_fails():
+    """Stage 8 fail 路径:测试持续失败 + 非 live(无真实修复)→ fail-closed 落 failed,
+    人工 retry 是唯一入口。"""
+    import stat
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        repo = root / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        out = root / "gen"
+        state = root / "state.json"
+        fake = root / "fake-jest.sh"
+        fake.write_text(
+            '#!/bin/sh\necho "FAIL src/x.test.ts"\n'
+            'echo "  ● Pet › required fields"\n'
+            'echo "Tests: 1 failed, 3 passed, 4 total"\nexit 1\n',
+            encoding="utf-8",
+        )
+        fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+        import lib.tool_sandbox as sandbox
+        orig = sandbox._resolve_commands
+        sandbox._resolve_commands = lambda kind, stack: [str(fake)] if kind == "test" else orig(kind, stack)
+        try:
+            r = run(EXAMPLE, out, state, ["node"], auto=True, repo=repo)
+        finally:
+            sandbox._resolve_commands = orig
+        # 非 live:诊断/修复只签发 directive,不真实执行 → 不放行
+        st = read_state(state)["stages"]
+        assert st["8"]["state"] == "failed", st["8"]
+        assert "测试未绿" in (st["8"].get("error", {}).get("reason") or ""), st["8"]
+        failed_events = [e for e in r["events"] if e["kind"] == "failed" and e["stage"] == "8"]
+        assert failed_events, r["events"]
+        # 非 8 阶段不受影响(波次依赖:9/10 因 8 failed 被阻断,不虚假推进)
+        assert st["9"]["state"] != "completed", st["9"]
+
+
 def test_rerun_is_idempotent_resume():
     """P0-2: 已终态 codegen 阶段重跑不重写文件(resume_skip),产物 mtime 不变。"""
     import os
@@ -247,13 +320,15 @@ def main():
     test_auto_mode_completes_loop()
     test_java_vue_receipts_match_actual_codegen_agents()
     test_react_native_and_expo_frontend_wave()
+    test_stage8_test_execution_green_path()
+    test_stage8_fix_rounds_exhausted_fails()
     test_non_auto_directives_include_budgeted_knowledge_context()
     test_non_auto_blocks_at_unmet_prereq()
     test_rerun_is_idempotent_resume()
     test_parallel_wave_codegen_thread_safe()
     test_live_auto_mock_partial_script_degrades_to_skip()
     test_execution_plan_from_dag()
-    print("OK: runner 自测通过(9 组断言)")
+    print("OK: runner 自测通过(11 组断言)")
 
 
 if __name__ == "__main__":

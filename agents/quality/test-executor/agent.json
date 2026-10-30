@@ -1,0 +1,14 @@
+{
+  "name": "test-executor",
+  "agent_type": "prompt_role",
+  "role": "测试执行器",
+  "inputs": {
+    "stacks": { "type": "array", "required": true, "description": "要执行的栈列表" },
+    "repo_path": { "type": "string", "required": true, "description": "测试工程根目录" }
+  },
+  "outputs": {
+    "test_report": { "type": "object", "description": "结构化测试报告(摘要/失败用例/门控判定)" }
+  },
+  "tools": ["bash"],
+  "prompt_file": "prompt.md"
+}

@@ -40,7 +40,9 @@ from lib.state_manager import actionable_stages, init_state, read_state, summary
 from lib.transition import TransitionError, complete_stage, skip_stage, start_stage  # noqa: E402
 
 # 确定性阶段(可直接执行)vs LLM 阶段(签发委派指令)
-DETERMINISTIC = {"0", "5A", "5B", "6", "10"}
+# Stage 8 自 P0 起为确定性执行阶段:用例生成仍走 LLM 委派(prompt_role),
+# 执行/门控/复验由 runner 内循环确定性别裁决(见 _stage_test_execution)。
+DETERMINISTIC = {"0", "5A", "5B", "6", "8", "10"}
 
 # 演示模式(契约已提供)下跳过的 LLM 阶段及其理由。
 # planner 只决策 1/2/3/4(基于已有产物),7/8/9 属演示场景缺省,保留在此表作 fallback 合并。
@@ -50,7 +52,7 @@ SKIP_STAGES = {
     "3": ("orchestrator/services-analyst", "演示模式:单仓库,不产技术方案"),
     "4": ("orchestrator/git-client", "演示模式:单仓库本地开发,不新建分支"),
     "7": ("quality/code-review", "演示模式:无真实 PR 评审"),
-    "8": ("quality/test-case-generator", "演示模式:无真实测试用例"),
+    "8": ("quality/test-case-generator", "演示模式:无真实测试工程可执行"),
     "9": ("orchestrator/deployer", "演示模式:无真实提测部署"),
 }
 
@@ -471,6 +473,121 @@ def run(
         except Exception as e:  # codegen 本身失败
             events.emit({"stage": sid, "kind": "failed", "detail": f"codegen 异常: {e}"})
 
+    def _stage_test_execution(group: List[str]) -> None:
+        """Stage 8 内循环:执行测试 → (失败时诊断/修复循环)→ 复验门 → complete。
+
+        确定性部分:执行(run_tests 白名单)、门控(fail-closed)、轮次控制;
+        LLM 部分:诊断归因 / 修复,在 --live 模式下经 tool calling 执行,
+        非 live 模式签发 directive(证据齐但未真实执行时 fail-closed)。
+        修复循环上限 MAX_FIX_ROUNDS 轮,耗尽 → fail_stage,人工 retry 是唯一入口。
+        """
+        MAX_FIX_ROUNDS = 3
+        if _stage_in_terminal(state_file, "8"):
+            events.emit({"stage": "8", "kind": "resume_skip", "detail": "已达终态,跳过实体工作"})
+            return
+        if not auto and not live:
+            # 非 auto 非 live:与 LLM 阶段同语义——签发用例生成 directive 即返回,
+            # 真实执行留待人工/auto 复跑(确定性执行不越权)。
+            _run_llm_stage(
+                state_file, "8", policy, contract, entities, repo, context_max_tokens,
+                live=False, llm_runtime=llm_runtime, llm_script=llm_script,
+                llm_max_turns=llm_max_turns, auto=auto, events=events,
+            )
+            return
+        mock_uncovered_8 = (
+            live and auto and llm_runtime == "mock"
+            and llm_script is not None and not _mock_covers_stage(llm_script, "8")
+        )
+        if not repo or mock_uncovered_8:
+            # 演示/mock 场景:无真实测试工程可执行 → 沿用 auto-skip 语义
+            sub, reason = planned_skips["8"]
+            if mock_uncovered_8:
+                reason = f"mock 脚本未覆盖本阶段,降级 auto 跳过: {reason}"
+            _try_transition(
+                state_file,
+                lambda: skip_stage(
+                    state_file, "8", reason=reason,
+                    approved_by="runner:auto" if auto else "human",
+                    receipt=_register(state_file, issue_receipt("8", sub, "runner", action="skip")),
+                ),
+                events, "8", "skip", reason,
+            )
+            return
+        from lib.test_execution import run_all
+        start_stage(state_file, "8")
+        diagnosis_log: List[dict] = []
+        fix_rounds = 0
+        report = run_all(group, str(repo))
+        while not report["ok"] and fix_rounds < MAX_FIX_ROUNDS:
+            fix_rounds += 1
+            events.emit({
+                "stage": "8", "kind": "test_fix_round",
+                "detail": {"round": fix_rounds, "problems": report["problems"]},
+            })
+            # 诊断/修复:live 模式真实执行(LLM);非 live 签发 directive 供人工闭环。
+            # 注意:不复用 _directive(其按 by_stack 解析执行者,此处传不进栈名),
+            # 手工构造等价 directive,subagent 显式指定(analyzer/fixer 已在
+            # policy allowed 集合内,receipt 校验可过)。
+            subagents = ["quality/test-failure-analyzer", "quality/test-fixer"]
+            directive = {
+                "stage": "8",
+                "subagents": subagents,
+                "receipt": issue_receipt("8", subagents, token="runner"),
+                "contract": str(contract),
+                "context": build_dispatch_context(
+                    "8", str(contract), entities, repo, context_max_tokens,
+                ),
+                "note": "测试失败,需 analyzer 归因 + fixer 修复(runner 内循环第 "
+                        f"{fix_rounds} 轮)",
+            }
+            if live:
+                from lib.llm_dispatch import run_llm_stage
+                res = run_llm_stage(
+                    directive, state_file,
+                    client=_build_stage_client(llm_runtime, llm_script, "8"),
+                    contract_path=contract,
+                    workdir=repo,
+                    max_turns=llm_max_turns,
+                    auto_approve=auto,
+                )
+                diagnosis_log.append({"round": fix_rounds, "llm": res})
+                _persist_transcript(events._out_dir, f"8-fix-{fix_rounds}", res)  # noqa: SLF001
+            else:
+                diagnosis_log.append({"round": fix_rounds, "directive": "issued(not live)"})
+                # fail-closed:没真实执行诊断/修复,不能宣称修复完成
+                break
+            report = run_all(group, str(repo))
+        if report["ok"]:
+            _try_transition(
+                state_file,
+                lambda: complete_stage(
+                    state_file, "8",
+                    outputs={
+                        "test_cases": "由 test-case-generator 阶段产出(见 directive)",
+                        "test_report": json.dumps(
+                            {s: r["summary"] for s, r in report["per_stack"].items()},
+                            ensure_ascii=False,
+                        ),
+                    },
+                    receipt=_register(state_file, issue_receipt("8", "quality/test-executor", "runner")),
+                    checkpoint_decision="approve" if auto else None,
+                    auto_approve=auto,
+                    evidence=[{
+                        "type": "test_execution",
+                        "detail": f"ok=true, fix_rounds={fix_rounds}, stacks={','.join(group)}",
+                        "at": _now(),
+                    }],
+                ),
+                events, "8", "done", f"测试执行闭环通过(修复 {fix_rounds} 轮)",
+            )
+        else:
+            from lib.transition import fail_stage
+            fail_stage(state_file, "8", reason=f"测试未绿(修复轮次耗尽 {fix_rounds}): {report['problems']}")
+            events.emit({
+                "stage": "8", "kind": "failed",
+                "detail": f"测试未绿: {report['problems']}(人工 retry 是唯一恢复入口)",
+            })
+
     def _stage_consistency() -> None:
         try:
             r = cross_stack_check(contract)
@@ -513,6 +630,8 @@ def run(
             _codegen_task(sid, frontend)
         elif sid == "6":
             _stage_consistency()
+        elif sid == "8":
+            _stage_test_execution(backend + frontend)
         elif sid == "10":
             _stage_delivery()
         else:  # LLM 阶段(1/2/3/4/7/8/9)

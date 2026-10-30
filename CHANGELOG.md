@@ -8,6 +8,21 @@
 ## [Unreleased]
 
 ### Added
+- **Stage 8 测试执行闭环(P0)**:阶段语义从"测试用例生成"扩为"生成与执行闭环"——
+  执行(沙箱白名单)→ 失败诊断归因(LLM 委派)→ 修复(LLM 委派)→ 复验门,修复轮上限 3,
+  耗尽即 `failed` 落盘,人工 retry 是唯一恢复入口;测试不绿到不了 Stage 9。
+  - 新增 `lib/test_execution.py`:jest/vitest 摘要解析(只取 Tests 行语义)、失败用例提取、
+    fail-closed 门控(无摘要/无用例/超时/非零退出均不放行)。
+  - 新增 `run_tests` live 工具;新增 3 个 Agent:quality/test-executor(只执行不修)、
+    test-failure-analyzer(归因 impl/case/env 三分类,不修代码)、test-fixer(按 diagnosis
+    最小修复,生成区不手改)。
+  - `resolve_subagents` 支持 dict 型阶段 `default` 键(无 stacks 时的缺省执行者)。
+  - Stage 8 required_outputs 增至 `["test_cases", "test_report"]`——门控只认 test_report,
+    不认用例表自述。
+  - 环境边界:非 auto 非 live 仍签发 directive(不越权);live+auto mock 未覆盖时
+    沿用降级 skip 语义;无 repo(演示)不硬造假报告。
+
+### Added
 - **React Native / Expo 全流程支持（第 5/6 栈）**：新增 `react_native` 与 `expo`（RN 的 Expo 托管工作流子类适配器）两个 StackAdapter，共享 React 的 OpenAPI→TS 映射，生成 `src/types/api.ts` + `src/api/client.ts`（fetch 请求层）。
   - 工程命令映射：LINT = `eslint src --ext .ts,.tsx` + `tsc --noEmit`，BUILD 门 = `tsc --noEmit`（类型检查，真机 metro bundle / EAS 构建归 CI），TEST/COVERAGE = jest；部署路由 `app-bundle` / `eas-build`（仅登记）。
   - 工程识别：裸 RN 以 `ios/Podfile` / `android/app` / `metro.config.js` 为标记，Expo 以 `app.config.{js,ts}` 独有标记识别。

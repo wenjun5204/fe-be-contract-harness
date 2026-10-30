@@ -138,7 +138,7 @@ runner 为 LLM 阶段签发任务时，附带的 `dispatch-context/v1`。它会�
                                                       ──人工确认──►
                                            ┌────────────────┴────────────────┐
                                            ▼                                 ▼
-                                      7 提交与 PR                       8 测试用例生成
+                                      7 提交与 PR                       8 测试用例生成与执行闭环
                                            └────────────────┬────────────────┘
                                                             ▼
                                                     9 提测与部署
@@ -159,7 +159,7 @@ runner 为 LLM 阶段签发任务时，附带的 `dispatch-context/v1`。它会�
 | 5B | 前端实现 | 变更文件、覆盖率 | 无 |
 | 6 | 前后端一致性校验 | 一致性报告 | `mandatory_review` |
 | 7 | 提交与 PR | `pr_url` | `artifact_review` |
-| 8 | 测试用例生成 | `test_cases` | `artifact_review` |
+| 8 | 测试用例生成与执行闭环 | `test_cases`, `test_report` | `artifact_review` |
 | 9 | 提测与部署 | `deploy_result` | `artifact_review` |
 | 10 | 交付报告 | `delivery_report` | `artifact_review` |
 

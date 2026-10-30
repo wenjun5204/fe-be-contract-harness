@@ -54,7 +54,8 @@ def replay_normal_delivery(tmp: Path) -> dict:
     with tempfile.TemporaryDirectory() as d:
         sf = _state_ready(d, tmp)
         script = [{"tool_calls": [{"name": "report_outputs",
-                                   "arguments": {"outputs": {"test_cases": [{"id": "TC-1"}]}}}]}]
+                                   "arguments": {"outputs": {"test_cases": [{"id": "TC-1"}],
+                                                            "test_report": {"total": 1, "passed": 1, "failed": 0}}}}]}]
         res = run_llm_stage(_directive("replay-1"), sf, client=MockLLMClient(script),
                             contract_path=CONTRACT, workdir=d, auto_approve=True)
         assert res["ok"] and res["status"] == "completed", res
@@ -101,7 +102,8 @@ def replay_transient_error_recovered(tmp: Path) -> dict:
                 self.left -= 1
                 raise LLMError("503 Service Unavailable")
             return {"tool_calls": [{"id": "c1", "name": "report_outputs",
-                                    "arguments": {"outputs": {"test_cases": [{"id": "TC-1"}]}}}]}
+                                    "arguments": {"outputs": {"test_cases": [{"id": "TC-1"}],
+                                                             "test_report": {"total": 1, "passed": 1, "failed": 0}}}}]}
 
     with tempfile.TemporaryDirectory() as d:
         sf = _state_ready(d, tmp)
