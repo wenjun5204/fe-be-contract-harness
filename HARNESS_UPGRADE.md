@@ -162,10 +162,12 @@ npm run demo
   与 StageResult 回传（apply_stage_result：register → start → complete 全门控，
   张冠李戴 receipt / 缺产出 fail-closed 有测）；已接进 smoke-test
 
-**下一步候选**（按建议优先级，2026-10-29 更新）：
+**下一步候选**（按建议优先级，2026-11-06 更新）：
 1. ✅ 推送合并已完成（main 与 origin 同步）
-2. P2-2 平台适配收口：挂真实 Claude Code/OpenClaw 运行时端到端验证一次（本地部分已全落地）
-3. 再找 1~2 个真实项目跑（大型契约 200+ 端点压 condenser/60k 预算），用真实数据判定 P2-1 condenser LLM 摘要版 / P2-4 coverage 强拦的优先级
+2. ✅ 第二个真实项目已跑（2026-11-06 yivote，java 栈 Stage 8 测试闭环真实验证，4 项发现 3 修 1 待）——见文末「真实契约二跑记录」
+3. P2-2 平台适配收口：挂真实 Claude Code/OpenClaw 运行时端到端验证一次（本地部分已全落地）。注：mcli 网关实测不开放 OpenAI 兼容接口，真实 LLM 验证只剩此路径
+4. java 覆盖率采集补齐（jacoco csv 解析，P2-4 前置）
+5. 再找 1~2 个真实项目跑（大型契约 200+ 端点压 condenser/60k 预算），用真实数据判定 P2-1 condenser LLM 摘要版 / P2-4 coverage 强拦的优先级
 
 ---
 
@@ -215,3 +217,48 @@ npm run demo
    零新增/零改动（逐文件 bisect 验证）。已删除曾被污染写入的
    `drift-node-petstore.md`（测试噪音，E2 采集口径同 E1——只收真实
    run 素材；commit a7b6321，删除后全量 pytest 181 通过验证隔离生效）。
+
+---
+
+## 真实契约二跑记录（2026-11-06，yivote · 咦投票）
+
+第二个真实项目端到端（微信小程序投票/凑局工具，java Spring Boot 后端，
+22 端点 / 20 schema / 102 字段，契约含 mvnw wrapper 仓库形态）。本次重点
+验证 Stage 8 测试执行闭环在真实 java 工程上的落地（首跑 fe_backend_mini
+时该闭环尚未落地）。
+
+### 结果
+
+| 环节 | 结果 |
+|---|---|
+| java 栈 G1 门 | ✅（契约派生 DTO/Controller 全量生成） |
+| 跨栈一致性 | ✅ |
+| runner --auto（--repo 真实仓库） | ✅ 12/12 零 blocked |
+| **Stage 8 真实测试执行** | ✅ `./mvnw test` 真跑，**23/23 用例绿，修复 0 轮直接过门**（VoteService 7 + GroupService 5 + TodoService 7 + CollectService 4） |
+| KPI | success_rate 1.0；吞吐 2.2 端点/秒；gate_blocked 0 |
+
+### 真实使用暴露的发现（已修 4 项，其中 3 项代码闭环 commit 7ace2e5）
+
+1. **java 栈命令硬编码 mvn**（✅ 已修）：wrapper 仓库（本机无系统 maven）
+   `mvn` 直接命令不存在——而 wrapper 恰是 java 仓库常态。修复：adapter
+   命令方法增加 repo_path 感知（mvnw 存在时优先 `./mvnw`，cwd 相对形态），
+   沙箱/coverage/repo_knowledge 全链路接线；命令仍源自 adapter 白名单常量
+   派生，LLM 不可控。回归：`test_java_mvnw_wrapper_preference`。
+2. **测试摘要解析只认 jest/vitest**（✅ 已修）：maven surefire
+   `Tests run: N, Failures: ..., Errors: ...` 汇总全部丢失 → parsed=False，
+   **全绿被误判失败**。修复：新增 surefire 解析（[ERROR] 级别同认；汇总行
+   优先、截断丢汇总时退化逐类求和；failed = Failures + Errors）+ 失败
+   详情块用例提取。回归：4 组 surefire 解析测试。
+3. **沙箱 stdout/stderr 合并截断吃掉 stdout 尾部摘要**（✅ 已修）：先
+   `stdout + stderr` 合并再保头保尾截断，stderr 噪音（JVM agent 警告等）
+   垫在 stdout 之后，把 surefire 汇总挤出 tail 窗口——jest 全走 stdout
+   从未暴露。修复：两流各自保头保尾再拼接（`--- stderr ---` 分界标注）。
+   回归：`test_stdout_tail_summary_survives_stderr_noise`。
+4. **java 覆盖率采集未实现**（⏳ 待做，P2-4 前置）：yivote run 的 5A
+   coverage 输出 `java: no-line-coverage`——coverage_collector 只解析
+   jest 文本口径，jacoco 报告（csv/xml/html）不认。P2-4 coverage 强拦
+   需要 java 侧行覆盖数据，补齐后才能校准阈值。
+
+另：mcli 网关不开放 OpenAI 兼容接口（404/400 实测）——`--llm-runtime
+openai` 在当前环境无真实网关可用，真实 LLM 验证只剩 P2-2 平台挂载
+（Claude Code 作为运行时）一条路。
