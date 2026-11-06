@@ -40,16 +40,20 @@ class SandboxError(Exception):
     """沙箱配置类错误(白名单命令非法 / kind 未知),fail-closed 抛出。"""
 
 
-def _resolve_commands(kind: str, stack: str) -> List[str]:
-    """从栈 adapter 白名单解析命令列表(数据源,LLM 不可控)。"""
+def _resolve_commands(kind: str, stack: str, workdir: "str | Path | None" = None) -> List[str]:
+    """从栈 adapter 白名单解析命令列表(数据源,LLM 不可控)。
+
+    workdir 传给 adapter 做确定性仓库形态探测(如 java 仓库带 mvnw wrapper
+    时优先 wrapper)——命令内容仍源自 adapter 白名单常量派生。
+    """
     from lib.stack.adapter import get_adapter
     adapter = get_adapter(stack)
     if kind == "lint":
-        return adapter.lint_commands()
+        return adapter.lint_commands(repo_path=workdir)
     if kind == "build":
-        return adapter.build_commands()
+        return adapter.build_commands(repo_path=workdir)
     if kind == "test":
-        return adapter.test_commands()
+        return adapter.test_commands(repo_path=workdir)
     raise SandboxError(f"未知 kind: {kind}(可选: {', '.join(KINDS)})")
 
 
@@ -96,7 +100,7 @@ def run_whitelisted(
     """
     timeout = max(1, min(int(timeout), MAX_TIMEOUT_SECONDS))
     workdir = Path(workdir)
-    commands = _resolve_commands(kind, stack)
+    commands = _resolve_commands(kind, stack, workdir)
     if not commands:
         return {"ok": False, "kind": kind, "stack": stack,
                 "error": f"{stack} 无 {kind} 白名单命令"}
@@ -112,7 +116,16 @@ def run_whitelisted(
             proc = subprocess.run(
                 argv, cwd=str(workdir), capture_output=True, text=True, timeout=timeout,
             )
-            output, truncated = _truncate_output(proc.stdout + "\n" + proc.stderr)
+            # 真实首跑发现:先合并再截断会把 stderr 垫在 stdout 尾部之后,
+            # stdout 结尾的关键摘要(如 maven surefire 的 "Tests run: N"汇总)
+            # 被挤出 tail 窗口。两流各自保头保尾再拼接,任一流截断都如实标记。
+            stdout_t, tr1 = _truncate_output(proc.stdout)
+            stderr_t, tr2 = _truncate_output(proc.stderr)
+            if stderr_t:
+                output = f"{stdout_t}\n--- stderr ---\n{stderr_t}"
+            else:
+                output = stdout_t
+            truncated = tr1 or tr2
             entry.update({
                 "exit_code": proc.returncode,
                 "output": output,

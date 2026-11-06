@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import List
 
 from lib.stack.adapter import GeneratedFile, StackAdapter, register
@@ -49,6 +50,29 @@ class JavaStackAdapter(StackAdapter):
     COVERAGE = "mvn test jacoco:report"
     MARKERS = ["pom.xml", "build.gradle"]
     DEPLOY = ["container"]
+
+    def _mvn(self, repo_path: "str | Path | None" = None) -> str:
+        """mvn 命令形态:仓库带 mvnw wrapper 时优先 wrapper(真实首跑发现:
+        wrapper 仓库是常态,本机未必装系统 maven,mvn 直接命令不存在)。
+
+        wrapper 形态 "./mvnw" 由 cwd 相对解析(sandbox 以 workdir 为 cwd);
+        仅做文件存在性探测,命令内容仍源自本常量派生,LLM 不可控。
+        """
+        if repo_path and (Path(repo_path) / "mvnw").exists():
+            return "./mvnw"
+        return "mvn"
+
+    def lint_commands(self, repo_path: "str | Path | None" = None) -> List[str]:
+        return [f"{self._mvn(repo_path)} checkstyle:check"]
+
+    def build_commands(self, repo_path: "str | Path | None" = None) -> List[str]:
+        return [f"{self._mvn(repo_path)} -q compile"]
+
+    def test_commands(self, repo_path: "str | Path | None" = None) -> List[str]:
+        return [f"{self._mvn(repo_path)} test"]
+
+    def coverage_command(self, repo_path: "str | Path | None" = None) -> str:
+        return f"{self._mvn(repo_path)} test jacoco:report"
 
     def generate(self, model: dict) -> List[GeneratedFile]:
         schemas = model.get("schemas", {})

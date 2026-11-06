@@ -29,13 +29,13 @@ def _fake_stack(stack: str, *, lint=(), build=(), test=()):
     saved = stack_adapter._REGISTRY[stack]
 
     class _Fake:
-        def lint_commands(self):
+        def lint_commands(self, repo_path=None):
             return list(lint)
 
-        def build_commands(self):
+        def build_commands(self, repo_path=None):
             return list(build)
 
-        def test_commands(self):
+        def test_commands(self, repo_path=None):
             return list(test)
 
     stack_adapter._REGISTRY[stack] = _Fake
@@ -81,6 +81,26 @@ def test_output_truncated_head_and_tail():
         assert marker_head in out["output"] and marker_tail in out["output"], out["output"][:100]
         assert "elided" in out["output"]
         assert "x" * 20000 not in out["output"]  # 中间被省略
+
+
+def test_stdout_tail_summary_survives_stderr_noise():
+    """真实首跑发现:stdout 尾部摘要(maven surefire "Tests run")不能被
+    后置的 stderr 噪音挤出 tail 窗口——两流各自保头保尾再拼接。"""
+    with tempfile.TemporaryDirectory() as d:
+        script = Path(d) / "gen.py"
+        script.write_text(
+            "import sys\n"
+            "sys.stdout.write('BUILD_START' + 'x' * 20000 + 'Tests run: 23, Failures: 0')\n"
+            "sys.stderr.write('WARNING: agent noise ' + 'y' * 3000)\n",
+            encoding="utf-8",
+        )
+        with _fake_stack("node", test=[f"python3 {script}"]):
+            res = run_whitelisted("test", "node", workdir=d)
+        out = res["results"][0]
+        assert out["truncated"], out
+        assert "Tests run: 23, Failures: 0" in out["output"], out["output"][:200]
+        assert "WARNING: agent noise" in out["output"]  # stderr 也保留
+        assert "--- stderr ---" in out["output"]  # 分界标注可见
 
 
 def test_whitelist_command_with_shell_metachar_rejected():

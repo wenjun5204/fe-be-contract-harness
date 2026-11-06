@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import re
-from typing import List, Optional
+from typing import List
 
 # jest/vitest 摘要行的两种口径:
 #   "Tests:       3 failed, 4 passed, 7 total"(jest 冒号 + 逗号)
@@ -23,15 +23,60 @@ _SUMMARY_RE = re.compile(
 )
 _COUNT_RE = re.compile(r"(\d+)\s+(passed|failed|skipped|todo)", re.IGNORECASE)
 
+# maven surefire 摘要行(真实首跑发现:java 栈 ./mvnw test 的输出 jest/vitest
+# 解析器不认,摘要全部丢失 → parsed=False 被误判失败):
+#   逐类: [INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: ... -- in com.x.X
+#   汇总: [INFO] Tests run: 23, Failures: 0, Errors: 0, Skipped: 0
+# 失败时同型行以 [ERROR] 输出,两种级别都认;汇总行(行尾无 "-- in")优先,
+# 缺汇总(如输出被截断)时退化为逐类求和,仍可机验。
+_SUREFIRE_RE = re.compile(
+    r"^\[(?:INFO|ERROR)\]\s+Tests run:\s*(\d+),\s*Failures:\s*(\d+),"
+    r"\s*Errors:\s*(\d+),\s*Skipped:\s*(\d+)(.*)$",
+    re.MULTILINE,
+)
+
+
+def _parse_surefire(output: str):
+    """maven surefire 摘要解析;无 surefire 行返回 None(交回 jest/vitest 解析)。
+
+    语义映射:failed = Failures + Errors(断言失败与运行异常都是失败用例);
+    passed = run - failed - skipped;total = run(跑到的用例数)。
+    """
+    aggregate = None
+    per_class_total = per_class_failed = per_class_skipped = 0
+    has_surefire = False
+    for m in _SUREFIRE_RE.finditer(output):
+        has_surefire = True
+        run, failures, errors, skipped = (int(m.group(i)) for i in range(1, 5))
+        if "-- in" not in m.group(5):
+            # 汇总行:取最后一条(多模块/多命令输出时末条为全局汇总)
+            aggregate = (run, failures + errors, skipped)
+        else:
+            per_class_total += run
+            per_class_failed += failures + errors
+            per_class_skipped += skipped
+    if not has_surefire:
+        return None
+    if aggregate is not None:
+        run, failed, skipped = aggregate
+    else:
+        run, failed, skipped = per_class_total, per_class_failed, per_class_skipped
+    passed = max(run - failed - skipped, 0)
+    return {"total": run, "passed": passed, "failed": failed, "skipped": skipped, "parsed": True}
+
 
 def parse_test_summary(output: str) -> dict:
     """从测试命令输出解析用例统计。
 
+    先试 maven surefire 格式(java),命中即返回;否则回落 jest/vitest。
     只取 "Tests" 行的语义(用例数);"Test Files" 行不计入(文件数 ≠ 用例数),
     jest/vitest 两种格式都覆盖。返回 {total, passed, failed, skipped, parsed}。
     parsed=False 表示输出里找不到 Tests 摘要行(如命令没跑起来、
     输出被截断掉了摘要)——按 fail-closed 处理,由 gate 判失败。
     """
+    surefire = _parse_surefire(output)
+    if surefire is not None:
+        return surefire
     counts = {"passed": 0, "failed": 0, "skipped": 0, "todo": 0}
     parsed = False
     for m in _SUMMARY_RE.finditer(output):
@@ -55,6 +100,8 @@ def parse_failures(output: str, limit: int = 20) -> List[dict]:
     匹配用例级失败标题:
     - jest: "● Suite › case name"(● 后跟 suite > case,取 › 右侧用例名)
     - vitest: "✕ case name"(✕ 前缀)
+    - maven surefire: "[ERROR]   Class.method:line message"(
+      失败详情块内的行,case 取 "Class.method")
     文件级 FAIL 行不是用例,丢弃。返回 [{case}](截断到 limit 条)。
     """
     failures: List[dict] = []
@@ -69,6 +116,21 @@ def parse_failures(output: str, limit: int = 20) -> List[dict]:
             continue
         seen.add(case)
         failures.append({"case": case[:200], **({"suite": suite[:120]} if suite else {})})
+        if len(failures) >= limit:
+            break
+    if failures:
+        return failures
+    # surefire 失败详情块:"[ERROR]   GroupServiceTest.testFoo:24 expected: ..."
+    for m in re.finditer(
+        r"^\[ERROR\]\s+(\S+):(\d+)\s+\S+.*$",
+        output,
+        re.MULTILINE,
+    ):
+        case = m.group(1)
+        if case in seen:
+            continue
+        seen.add(case)
+        failures.append({"case": case[:200]})
         if len(failures) >= limit:
             break
     return failures

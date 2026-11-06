@@ -40,6 +40,23 @@ VITEST_OUTPUT = """ ✓ src/api/client.test.ts (3)
 NO_SUMMARY_OUTPUT = """node:command not found
 """
 
+# maven surefire 输出样例(真实首跑发现:java 栈 ./mvnw test)
+SUREFIRE_GREEN = """[INFO] Building yivote 0.0.1-SNAPSHOT
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.470 s -- in com.yivote.backend.VoteServiceTest
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.093 s -- in com.yivote.backend.GroupServiceTest
+[INFO] Results:
+[INFO] Tests run: 23, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
+"""
+
+# surefire 失败形态:[ERROR] 级别 + Failures 失败详情块(截断丢汇总时逐类求和)
+SUREFIRE_FAIL_TRUNCATED = """[ERROR] Tests run: 4, Failures: 1, Errors: 1, Skipped: 1, Time elapsed: 0.034 s -- in com.yivote.backend.CollectServiceTest
+[ERROR] Failures:
+[ERROR]   GroupServiceTest.testCreate:24 expected: <1> but was: <2>
+[ERROR] Errors:
+[ERROR]   CollectServiceTest.testSync:31 NullPointerException
+"""
+
 
 def test_parse_jest_summary():
     s = parse_test_summary(JEST_OUTPUT)
@@ -57,6 +74,36 @@ def test_parse_vitest_summary():
 def test_parse_no_summary():
     s = parse_test_summary(NO_SUMMARY_OUTPUT)
     assert s["parsed"] is False, s
+
+
+def test_parse_surefire_green_aggregate():
+    """汇总行优先:23 total 全过,不吃逐类行(逐类 12 会低估)。"""
+    s = parse_test_summary(SUREFIRE_GREEN)
+    assert s == {"total": 23, "passed": 23, "failed": 0, "skipped": 0, "parsed": True}, s
+
+
+def test_parse_surefire_fail_truncated():
+    """无汇总行(截断)→ 逐类求和;failed = Failures + Errors。"""
+    s = parse_test_summary(SUREFIRE_FAIL_TRUNCATED)
+    assert s["parsed"] is True, s
+    assert s["total"] == 4, s
+    assert s["failed"] == 2, s
+    assert s["skipped"] == 1, s
+    assert s["passed"] == 1, s
+
+
+def test_parse_surefire_failure_cases():
+    """失败详情块提取用例名(Class.method),供诊断归因输入。"""
+    fs = parse_failures(SUREFIRE_FAIL_TRUNCATED)
+    cases = [f["case"] for f in fs]
+    assert "GroupServiceTest.testCreate" in cases, cases
+    assert "CollectServiceTest.testSync" in cases, cases
+
+
+def test_parse_jest_unaffected_by_surefire():
+    """jest/vitest 回归:surefire 分支不劫持无 [INFO] 行的输出。"""
+    s = parse_test_summary(JEST_OUTPUT)
+    assert s["total"] == 7 and s["failed"] == 3, s
 
 
 def test_parse_failures():

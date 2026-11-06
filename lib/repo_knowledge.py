@@ -76,7 +76,7 @@ def build_knowledge(repo_path: str) -> str:
         from lib.stack.adapter import get_adapter
         for stack in active:
             adapter = get_adapter(stack)
-            lines.append(f"- {stack}: lint={adapter.lint_commands()} test={adapter.test_commands()} coverage={adapter.coverage_command()}")
+            lines.append(f"- {stack}: lint={adapter.lint_commands(str(repo))} test={adapter.test_commands(str(repo))} coverage={adapter.coverage_command(str(repo))}")
     else:
         lines.append("- 未识别；需要人工补充")
     return "\n".join(lines) + "\n"

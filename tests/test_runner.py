@@ -141,10 +141,9 @@ def test_stage8_test_execution_green_path():
         fake = root / "fake-jest.sh"
         fake.write_text('#!/bin/sh\necho "Tests: 4 passed, 4 total"\n', encoding="utf-8")
         fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
-        import lib.test_execution as te
         import lib.tool_sandbox as sandbox
         orig = sandbox._resolve_commands
-        sandbox._resolve_commands = lambda kind, stack: [str(fake)] if kind == "test" else orig(kind, stack)
+        sandbox._resolve_commands = lambda kind, stack, workdir=None: [str(fake)] if kind == "test" else orig(kind, stack, workdir)
         try:
             r = run(EXAMPLE, out, state, ["node"], auto=True, repo=repo)
         finally:
@@ -181,7 +180,7 @@ def test_stage8_fix_rounds_exhausted_fails():
         fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
         import lib.tool_sandbox as sandbox
         orig = sandbox._resolve_commands
-        sandbox._resolve_commands = lambda kind, stack: [str(fake)] if kind == "test" else orig(kind, stack)
+        sandbox._resolve_commands = lambda kind, stack, workdir=None: [str(fake)] if kind == "test" else orig(kind, stack, workdir)
         try:
             r = run(EXAMPLE, out, state, ["node"], auto=True, repo=repo)
         finally:

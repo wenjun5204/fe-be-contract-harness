@@ -47,16 +47,21 @@ class StackAdapter(ABC):
     MARKERS: List[str] = []
     DEPLOY: List[str] = []
 
-    def lint_commands(self) -> List[str]:
+    def lint_commands(self, repo_path: "str | Path | None" = None) -> List[str]:
+        """命令白名单(可选感知仓库形态,如 java 优先 mvnw wrapper)。
+
+        repo_path 仅用于确定性文件探测(mvnw 存在性),命令仍源自 adapter
+        常量派生,LLM 不可控——沙箱红线不变。
+        """
         return list(self.LINT)
 
-    def build_commands(self) -> List[str]:
+    def build_commands(self, repo_path: "str | Path | None" = None) -> List[str]:
         return list(self.BUILD)
 
-    def test_commands(self) -> List[str]:
+    def test_commands(self, repo_path: "str | Path | None" = None) -> List[str]:
         return list(self.TEST)
 
-    def coverage_command(self) -> str:
+    def coverage_command(self, repo_path: "str | Path | None" = None) -> str:
         return self.COVERAGE
 
     def detect(self, repo_path: str) -> dict:

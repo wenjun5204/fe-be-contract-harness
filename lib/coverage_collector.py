@@ -34,7 +34,7 @@ def collect(stack: str, repo_path: str) -> dict:
     """跑覆盖率命令并解析(薄封装)。"""
     from lib.stack.adapter import get_adapter
     adapter = get_adapter(stack)
-    cmd = adapter.coverage_command()
+    cmd = adapter.coverage_command(repo_path)
     if not cmd:
         return {"error": f"{stack} 无覆盖率命令"}
     try:
