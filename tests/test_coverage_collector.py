@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lib.coverage_collector import parse_line_coverage, parse_report  # noqa: E402
+from lib.coverage_collector import parse_jacoco_csv, parse_line_coverage, parse_report  # noqa: E402
 
 
 def test_parse_vitest():
@@ -19,6 +19,24 @@ def test_parse_istanbul():
 
 def test_parse_none():
     assert parse_line_coverage("no coverage here") is None
+
+
+# jacoco.csv 样例(真实形态:GROUP,PACKAGE,CLASS,INSTRUCTION_*,BRANCH_*,LINE_*,...)
+JACOCO_CSV = """GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_COVERED,LINE_MISSED,LINE_COVERED,COMPLEXITY_MISSED,COMPLEXITY_COVERED,METHOD_MISSED,METHOD_COVERED
+backend,com.yivote.backend.common,CurrentUser,5,17,1,1,3,6,2,3,1,3
+backend,com.yivote.backend.common,ApiErrorHandler,42,7,0,0,9,2,2,2,2,2
+"""
+
+
+def test_parse_jacoco_csv():
+    """行覆盖 = LINE_COVERED/(COVERED+MISSED):(6+2)/(6+2+3+9)=8/20=40.0。"""
+    assert parse_jacoco_csv(JACOCO_CSV) == 40.0
+
+
+def test_parse_jacoco_csv_empty():
+    """空表/全零行返回 None(fail-closed 由上层兜底)。"""
+    assert parse_jacoco_csv("GROUP,PACKAGE,CLASS\n") is None
+    assert parse_jacoco_csv("") is None
 
 
 def test_parse_report():

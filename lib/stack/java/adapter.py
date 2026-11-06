@@ -47,7 +47,14 @@ class JavaStackAdapter(StackAdapter):
     LINT = ["mvn checkstyle:check"]
     BUILD = ["mvn -q compile"]
     TEST = ["mvn test"]
-    COVERAGE = "mvn test jacoco:report"
+    # jacoco 全限定 goal 形态:无需 pom 预先配置插件(真实首跑发现:仓库 pom
+    # 常无 jacoco 插件,裸 `test jacoco:report` 无 agent 产不出报告);
+    # 报告落 target/site/jacoco/jacoco.csv,由 coverage_collector 解析。
+    _JACOCO_VERSION = "0.8.12"
+    COVERAGE = (
+        f"mvn org.jacoco:jacoco-maven-plugin:{_JACOCO_VERSION}:prepare-agent "
+        f"test org.jacoco:jacoco-maven-plugin:{_JACOCO_VERSION}:report"
+    )
     MARKERS = ["pom.xml", "build.gradle"]
     DEPLOY = ["container"]
 
@@ -72,7 +79,11 @@ class JavaStackAdapter(StackAdapter):
         return [f"{self._mvn(repo_path)} test"]
 
     def coverage_command(self, repo_path: "str | Path | None" = None) -> str:
-        return f"{self._mvn(repo_path)} test jacoco:report"
+        mvn = self._mvn(repo_path)
+        return (
+            f"{mvn} org.jacoco:jacoco-maven-plugin:{self._JACOCO_VERSION}:prepare-agent "
+            f"test org.jacoco:jacoco-maven-plugin:{self._JACOCO_VERSION}:report"
+        )
 
     def generate(self, model: dict) -> List[GeneratedFile]:
         schemas = model.get("schemas", {})
