@@ -85,7 +85,7 @@
 | # | 改动 | 前置条件 | 状态 |
 |---|---|---|---|
 | P2-1 | condenser LLM 摘要版（被空洞化轮次摘要成 recap） | P1-1 确定性版实测不够用 | ⏳ |
-| P2-2 | platform/event_adapter 精确映射 + 各平台 fixture 测试 | 需真实平台（Claude Code/OpenClaw）运行时逐个验证 | 🔶 claude-code 精确映射（hook_event_name/工具名别名/tool_input 平铺）+ openclaw params 平铺已 fixture 固化；子 Agent 派发/回传适配器 `lib/platform/subagent_dispatch.py` 落地（CLI 模式 prompt 内嵌门控命令 / 回调模式经 transition，伪造 receipt fail-closed 有测）；真实平台挂载端到端验证仍待 |
+| P2-2 | platform/event_adapter 精确映射 + 各平台 fixture 测试 | 需真实平台（Claude Code/OpenClaw）运行时逐个验证 | 🔶 claude-code 精确映射（hook_event_name/工具名别名/tool_input 平铺）+ openclaw params 平铺已 fixture 固化；子 Agent 派发/回传适配器 `lib/platform/subagent_dispatch.py` 落地（CLI 模式 prompt 内嵌门控命令 / 回调模式经 transition，伪造 receipt fail-closed 有测）；真实平台挂载端到端验证:Claude Code CLI 模式 ✅(2026-11-06,真实子 Agent 执行 Stage 1 全门控闭环,见文末二跑记录);OpenClaw 待 |
 | P2-3 | trajectory 驱动 evals 回放：mock 重放断言门控行为不变（gate regression） | P0-5 已落盘，可直接开工 | ✅ |
 | P2-4 | coverage_gate 强拦接 checkpoint（低于阈值 → checkpoint_pending 而非 fail） | P0-6 真实覆盖率数据稳定后校准阈值 | ⏳ |
 | P2-5 | 工具执行沙箱（执行类工具） | 无（纯本地） | ✅ `run_check` 工具 + `lib/tool_sandbox.py`：命令来自栈 adapter LINT/BUILD/TEST 白名单（LLM 不可控，参数无命令字段）；list-args 无 shell（白名单命令含元字符即拒绝）；超时 120s（上限 600，超时 kill）；输出头 2000+尾 1000 截断；exit_code 如实返回可作 evidence（7 组测试含超时/截断/元字符拒绝/工具层接线） |
@@ -165,7 +165,7 @@ npm run demo
 **下一步候选**（按建议优先级，2026-11-06 更新）：
 1. ✅ 推送合并已完成（main 与 origin 同步）
 2. ✅ 第二个真实项目已跑（2026-11-06 yivote，java 栈 Stage 8 测试闭环真实验证，4 项发现 3 修 1 待）——见文末「真实契约二跑记录」
-3. P2-2 平台适配收口：挂真实 Claude Code/OpenClaw 运行时端到端验证一次（本地部分已全落地）。注：mcli 网关实测不开放 OpenAI 兼容接口，真实 LLM 验证只剩此路径
+3. ✅ P2-2 Claude Code 挂载已真实验证（2026-11-06,CLI 模式,Stage 1 全门控闭环 + 人工卡点 approve,见文末二跑记录）;OpenClaw 挂载与回调模式真实运行时验证仍待
 4. java 覆盖率采集补齐（jacoco csv 解析，P2-4 前置）
 5. 再找 1~2 个真实项目跑（大型契约 200+ 端点压 condenser/60k 预算），用真实数据判定 P2-1 condenser LLM 摘要版 / P2-4 coverage 强拦的优先级
 
@@ -262,3 +262,40 @@ npm run demo
 另：mcli 网关不开放 OpenAI 兼容接口（404/400 实测）——`--llm-runtime
 openai` 在当前环境无真实网关可用，真实 LLM 验证只剩 P2-2 平台挂载
 （Claude Code 作为运行时）一条路。
+
+---
+
+## P2-2 真平台挂载验证记录（2026-11-06，Claude Code CLI 模式）
+
+首个真实 LLM 运行时端到端（此前 LLM 阶段验证全部基于 mock）。以 Claude Code
+子 Agent 作为平台运行时,验证 `lib/platform/subagent_dispatch.py` 的 CLI 模式
+（任务包 prompt 内嵌门控命令,子 Agent 自己跑 transition）。
+
+### 验证链路（yivote Stage 1 需求分析）
+
+```
+runner(非 live 非 auto) → events.jsonl 落 directive(agent 事件)
+  → build_subagent_task → subagent-task/v1 任务包(角色 prompt + required_outputs
+    + receipt + register/start/complete 命令序列)
+  → 真实 Claude Code 子 Agent(45 次工具调用/~12 分钟/8.2 万 token)
+  → register → start → complete(全经唯一门控入口,complete 一次过门)
+  → checkpoint_pending(mandatory_review,子 Agent 不自批)
+  → 人工 approve(带同 receipt 复调 complete) → completed(approved_by=user)
+```
+
+### 验证结论
+
+| 验证点 | 结果 |
+|---|---|
+| 终态唯一入口 | ✅ 三步全经 lib/transition.py,state.json 无旁路写入 |
+| fail-closed | ✅ complete 一次过门;子 Agent 先读 requirements_spec.py 源码确认机验形态,scaffold→填→validate 一次通过(ACI 修复生效) |
+| 人工卡点语义 | ✅ 正确停 checkpoint_pending;approve 后 approved_by 如实记 user |
+| 产出质量 | ✅ 四键产出齐备,validate_requirements_completion 复核 missing=[];20 实体全量字段/边界、6 错误码(后端代码实证) |
+| 真实分析发现 | 版本路线(PRD v1.5 分版本 vs 契约 MVP 一并交付,以契约 SSOT)、CLOSED 无关闭接口、40000/40900 边界、领域 KB 对 yivote 全缺失——均已记入 spec assumptions,供 Stage 2 承接 |
+
+### 边界与后续
+
+- 验证的是 **CLI 模式**(子 Agent 进程内跑命令);回调模式(apply_stage_result)
+  与 OpenClaw 挂载仍只有 fixture 级验证;
+- `--llm-runtime openai` 无真实网关可用(mcli 实测 404/400);
+- 一次真实样本,非统计意义上的稳定性结论(大契约/多阶段长链路未覆盖)。
