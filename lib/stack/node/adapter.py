@@ -6,7 +6,7 @@ import re
 from typing import List
 
 from lib.stack.adapter import GeneratedFile, StackAdapter, register
-from lib.stack.common import nest_route, ts_class, ts_type
+from lib.stack.common import nest_route, resource_groups, resource_name, ts_class, ts_type
 
 METHOD_DECORATORS = {
     "GET": "Get",
@@ -39,11 +39,11 @@ class NodeStackAdapter(StackAdapter):
             "src/dto/index.ts",
             "\n".join([f"export * from './{n}.dto';" for n in sorted(schemas.keys())]) + "\n",
         ))
-        # 2. Controller(按资源分组)
-        for resource, eps in self._group_by_resource(endpoints).items():
+        # 2. Controller(按资源分组,版本前缀感知)
+        for base, eps in resource_groups(endpoints).items():
             files.append(GeneratedFile(
-                f"src/controllers/{resource}.controller.ts",
-                self._controller_file(resource, eps, schemas),
+                f"src/controllers/{resource_name(base)}.controller.ts",
+                self._controller_file(base, eps, schemas),
             ))
         # 3. manifest
         files.append(self.manifest(
@@ -53,15 +53,6 @@ class NodeStackAdapter(StackAdapter):
         return files
 
     @staticmethod
-    def _group_by_resource(endpoints: list) -> dict:
-        groups: dict = {}
-        for ep in endpoints:
-            seg = ep["path"].strip("/").split("/")[0]
-            resource = seg or "root"
-            groups.setdefault(resource, []).append(ep)
-        return groups
-
-    @staticmethod
     def _pascal(s: str) -> str:
         return "".join(p.capitalize() for p in re.split(r"[^a-zA-Z0-9]+", s) if p)
 
@@ -69,28 +60,28 @@ class NodeStackAdapter(StackAdapter):
     def _path_params(path: str) -> List[str]:
         return re.findall(r"\{([^}]+)\}", path)
 
-    def _controller_file(self, resource: str, eps: list, schemas: dict) -> str:
-        class_name = self._pascal(resource) + "Controller"
+    def _controller_file(self, base: str, eps: list, schemas: dict) -> str:
+        class_name = self._pascal(resource_name(base)) + "Controller"
         decorators = sorted({METHOD_DECORATORS[ep["method"]] for ep in eps})
         needed = ["Controller"] + decorators + ["Body", "Param"]
         lines = [
             "// 自动生成:契约派生 Controller 骨架(勿手改,重生成会覆盖)",
             "import { " + ", ".join(needed) + " } from '@nestjs/common';",
             "",
-            f"@Controller('{resource}')",
+            f"@Controller('{base.strip('/')}')",
             f"export class {class_name} {{",
         ]
         for ep in eps:
-            lines.extend(self._controller_method(ep, schemas, resource))
+            lines.extend(self._controller_method(ep, schemas, base))
             lines.append("")
         lines.append("}")
         return "\n".join(lines)
 
-    def _controller_method(self, ep: dict, schemas: dict, resource: str) -> List[str]:
+    def _controller_method(self, ep: dict, schemas: dict, base: str) -> List[str]:
         dec = METHOD_DECORATORS[ep["method"]]
-        prefix = "/" + resource
+        prefix = nest_route(base)  # 资源 base(/v1/charges,参数段已转 :x)
         full = nest_route(ep["path"])  # /pets/:petId
-        route = "" if full == prefix else full[len(prefix):]  # "/" 或 "/:petId" 或 ""
+        route = "" if full == prefix else full[len(prefix):]  # "/:petId" 或 ""
         resp_ts = ts_type(ep.get("response_schema"), schemas)
         args = [f"@Param('{p}') {p}: string" for p in self._path_params(ep["path"])]
         if ep.get("request_schema"):

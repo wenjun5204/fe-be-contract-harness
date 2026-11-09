@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List
 
 from lib.stack.adapter import GeneratedFile, StackAdapter, register
-from lib.stack.common import collect_refs
+from lib.stack.common import collect_refs, resource_groups, resource_name
 
 
 def java_type(schema: dict, schemas: dict) -> str:
@@ -91,24 +91,16 @@ class JavaStackAdapter(StackAdapter):
         files: List[GeneratedFile] = []
         for name, schema in schemas.items():
             files.append(GeneratedFile(f"src/main/java/dto/{name}.java", self._pojo(name, schema, schemas)))
-        for resource, eps in self._group_by_resource(endpoints).items():
+        for base, eps in resource_groups(endpoints).items():
             files.append(GeneratedFile(
-                f"src/main/java/controller/{self._pascal(resource)}Controller.java",
-                self._controller(resource, eps, schemas),
+                f"src/main/java/controller/{self._pascal(resource_name(base))}Controller.java",
+                self._controller(base, eps, schemas),
             ))
         files.append(self.manifest(
             routes=[ep["operation_id"] for ep in endpoints],
             models=list(schemas.keys()),
         ))
         return files
-
-    @staticmethod
-    def _group_by_resource(endpoints: list) -> dict:
-        groups: dict = {}
-        for ep in endpoints:
-            seg = ep["path"].strip("/").split("/")[0]
-            groups.setdefault(seg or "root", []).append(ep)
-        return groups
 
     @staticmethod
     def _pascal(s: str) -> str:
@@ -132,8 +124,8 @@ class JavaStackAdapter(StackAdapter):
         lines.append("}")
         return "\n".join(lines) + "\n"
 
-    def _controller(self, resource: str, eps: list, schemas: dict) -> str:
-        class_name = self._pascal(resource) + "Controller"
+    def _controller(self, base: str, eps: list, schemas: dict) -> str:
+        class_name = self._pascal(resource_name(base)) + "Controller"
         referenced = set()
         for ep in eps:
             referenced |= collect_refs(ep.get("request_schema"))
@@ -147,19 +139,18 @@ class JavaStackAdapter(StackAdapter):
             *imports,
             "",
             "@RestController",
-            f'@RequestMapping("/{resource}")',
+            f'@RequestMapping("{base}")',
             f"public class {class_name} {{",
         ]
         for ep in eps:
-            lines.extend(self._controller_method(ep, schemas, resource))
+            lines.extend(self._controller_method(ep, schemas, base))
             lines.append("")
         lines.append("}")
         return "\n".join(lines) + "\n"
 
-    def _controller_method(self, ep: dict, schemas: dict, resource: str) -> List[str]:
+    def _controller_method(self, ep: dict, schemas: dict, base: str) -> List[str]:
         ann = METHOD_ANNOTATIONS[ep["method"]]
-        prefix = "/" + resource
-        route = "" if ep["path"] == prefix else ep["path"][len(prefix):]
+        route = "" if ep["path"] == base else ep["path"][len(base):]
         resp_ts = java_type(ep.get("response_schema"), schemas)
         params = re.findall(r"\{([^}]+)\}", ep["path"])
         args = [f"@PathVariable String {p}" for p in params]

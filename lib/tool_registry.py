@@ -55,6 +55,11 @@ class ToolError(Exception):
 READ_FILE_MAX_LINES = 200
 # query_symbols 返回上限(引用列表截断,防大仓库撑爆上下文)
 QUERY_SYMBOLS_MAX_REFS = 20
+# read_contract 概览上限(输出保护,真实首跑发现:1538 实体全量 178k 字符
+# 一次调用即打爆上下文;与 read_file/query_symbols 同范式的有界化)
+READ_CONTRACT_MAX_ENTITIES = 200
+READ_CONTRACT_MAX_SCHEMAS_DETAIL = 50
+READ_CONTRACT_MAX_ENDPOINTS = 100
 
 
 @dataclass
@@ -168,18 +173,83 @@ def _read_contract_fn(contract_path: Optional[str], args: dict) -> dict:
     path = _safe_task_path(path)
     model = parse_contract(Path(path))
     schemas = model.get("schemas", {})
+    all_entities = sorted(schemas.keys())
+    endpoints = model.get("endpoints", [])
+
+    # 单实体详情模式:entity=<name> → 全量字段 + 该实体相关端点(有界)
+    entity = (args.get("entity") or "").strip()
+    if entity:
+        if entity not in schemas:
+            raise ToolError(
+                f"实体 {entity} 不在契约中(共 {len(all_entities)} 个;概览用 entities_offset 翻页检索)"
+            )
+        schema = schemas[entity]
+        props = schema.get("properties") or {}
+        required = set(schema.get("required") or [])
+        from lib.stack.common import ref_name
+        related = [
+            {k: ep.get(k) for k in ("method", "path", "request", "response") if ep.get(k)}
+            for ep in endpoints
+            if entity in (ref_name(ep.get("response_schema") or {}), ref_name(ep.get("request_schema") or {}))
+        ]
+        return {
+            "ok": True,
+            "contract": str(path),
+            "entity": entity,
+            "fields": [
+                {
+                    "name": name,
+                    "type": (spec or {}).get("type"),
+                    "required": name in required,
+                }
+                for name, spec in props.items()
+            ],
+            "endpoints": related,
+        }
+
+    # 概览模式(输出保护,真实首跑发现:Stripe 1538 实体全量返回 178k 字符,
+    # 一次调用即打爆上下文预算;与 read_file 行窗口/query_symbols top-20 同范式)
+    offset = int(args.get("entities_offset") or 0)
+    offset = max(offset, 0)
+    entity_window = all_entities[offset : offset + READ_CONTRACT_MAX_ENTITIES]
+    entities_note = None
+    if len(all_entities) > READ_CONTRACT_MAX_ENTITIES:
+        entities_note = (
+            f"实体总数 {len(all_entities)},仅返回 [{offset}, {offset + len(entity_window)})"
+            f"窗口;翻页用 entities_offset,查单实体字段用 entity=<name>"
+        )
+    schema_detail = None
+    schemas_note = None
+    if len(all_entities) <= READ_CONTRACT_MAX_SCHEMAS_DETAIL:
+        schema_detail = {
+            name: sorted((schemas[name].get("properties") or {}).keys())
+            for name in entity_window
+        }
+    else:
+        schemas_note = (
+            f"schema 字段明细未包含(总数 {len(all_entities)} > {READ_CONTRACT_MAX_SCHEMAS_DETAIL});"
+            "用 entity=<name> 逐个检索"
+        )
+    endpoint_window = endpoints[:READ_CONTRACT_MAX_ENDPOINTS]
+    endpoints_note = None
+    if len(endpoints) > READ_CONTRACT_MAX_ENDPOINTS:
+        endpoints_note = (
+            f"端点总数 {len(endpoints)},仅返回前 {READ_CONTRACT_MAX_ENDPOINTS} 个;"
+            "按资源聚焦请用 entity=<name>(返回该实体相关端点)"
+        )
     return {
         "ok": True,
         "contract": str(path),
-        "entities": sorted(schemas.keys()),
-        "schemas": {
-            name: [f.get("name", str(f)) for f in (schema.get("fields") or [])]
-            for name, schema in schemas.items()
-        } or schemas,
+        "stats": {"entities": len(all_entities), "endpoints": len(endpoints)},
+        "entities": entity_window,
+        **({"entities_note": entities_note} if entities_note else {}),
+        **({"schemas": schema_detail} if schema_detail else {}),
+        **({"schemas_note": schemas_note} if schemas_note else {}),
         "endpoints": [
             {k: ep.get(k) for k in ("method", "path", "request", "response", "entity") if ep.get(k)}
-            for ep in model.get("endpoints", [])
+            for ep in endpoint_window
         ],
+        **({"endpoints_note": endpoints_note} if endpoints_note else {}),
     }
 
 
@@ -305,11 +375,16 @@ def build_default_tools(
     registry = ToolRegistry()
     registry.register(Tool(
         name="read_contract",
-        description="解析 OpenAPI 契约,返回实体(schema)清单、字段概览与 endpoints。",
+        description=(
+            "解析 OpenAPI 契约,返回有界概览:实体清单(≤200,可翻页)、字段明细(≤50 实体,"
+            "更大契约用 entity 单查)、endpoints(≤100)。查单实体全量字段与相关端点用 entity=<name>。"
+        ),
         parameters={
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "契约文件路径;缺省用当前阶段绑定的契约"},
+                "entity": {"type": "string", "description": "单实体详情模式:该实体的全量字段与相关端点"},
+                "entities_offset": {"type": "integer", "description": "实体清单翻页偏移(概览模式,默认 0)"},
             },
             "required": [],
         },

@@ -95,6 +95,52 @@ def test_execute_read_contract():
     res = tools.execute("read_contract", {})
     assert res["ok"], res
     assert res["entities"], "petstore 应解析出实体"
+    # 小契约(≤50 实体)概览行为不变:带 schema 明细、无截断提示
+    assert res["schemas"] and "entities_note" not in res, res
+
+
+def test_read_contract_bounded_output_at_scale():
+    """真实首跑发现(Stripe 1538 实体):read_contract 全量返回 178k 字符,
+    一次调用打爆上下文。输出保护:实体 ≤200 + 翻页、schema 明细 ≤50、
+    endpoints ≤100;单实体详情模式 entity=<name> 提供检索路径。"""
+    import json
+    with tempfile.TemporaryDirectory() as d:
+        big = Path(d) / "big.json"
+        schemas = {
+            f"S{i}": {"type": "object", "properties": {f"f{j}": {"type": "string"} for j in range(5)}}
+            for i in range(250)
+        }
+        paths = {
+            f"/v1/r{i}": {"get": {"operationId": f"get_r{i}",
+                                  "responses": {"200": {"description": "ok",
+                                                        "content": {"application/json": {"schema": {"$ref": f"#/components/schemas/S{i}"}}}}}}}
+            for i in range(150)
+        }
+        big.write_text(json.dumps({
+            "openapi": "3.0.0", "info": {"title": "big", "version": "1"},
+            "paths": paths, "components": {"schemas": schemas},
+        }), encoding="utf-8")
+        tools = build_default_tools(str(big))
+        res = tools.execute("read_contract", {})
+        assert res["ok"], res
+        assert len(res["entities"]) == 200, len(res["entities"])
+        assert res["stats"] == {"entities": 250, "endpoints": 150}, res["stats"]
+        assert "entities_note" in res and "翻页" in res["entities_note"]
+        assert "schemas" not in res and "schemas_note" in res  # >50 不带明细
+        assert len(res["endpoints"]) == 100
+        # 有界性:整体输出 < 12k 字符(Stripe 实测 178k → 预期 ~1-2 个数量级压缩)
+        assert len(json.dumps(res, ensure_ascii=False)) < 12_000
+        # 翻页
+        res2 = tools.execute("read_contract", {"entities_offset": 200})
+        assert len(res2["entities"]) == 50, res2["entities"]
+        # 单实体详情:全量字段 + 相关端点
+        res3 = tools.execute("read_contract", {"entity": "S0"})
+        assert res3["ok"], res3
+        assert len(res3["fields"]) == 5, res3
+        assert any(e.get("path") == "/v1/r0" for e in res3["endpoints"]), res3["endpoints"]
+        # 不存在的实体:可行动报错(附检索方式)
+        res4 = tools.execute("read_contract", {"entity": "NoSuchEntity"})
+        assert not res4["ok"] and "entities_offset" in res4["error"], res4
 
 
 def test_args_validation():
