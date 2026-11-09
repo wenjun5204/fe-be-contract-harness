@@ -167,7 +167,7 @@ npm run demo
 2. ✅ 第二个真实项目已跑（2026-11-06 yivote，java 栈 Stage 8 测试闭环真实验证，4 项发现 3 修 1 待）——见文末「真实契约二跑记录」
 3. ✅ P2-2 Claude Code 挂载已真实验证（2026-11-06,CLI 模式,Stage 1 全门控闭环 + 人工卡点 approve,见文末二跑记录）;OpenClaw 挂载与回调模式真实运行时验证仍待
 4. java 覆盖率采集补齐（jacoco csv 解析，P2-4 前置）
-5. 再找 1~2 个真实项目跑（大型契约 200+ 端点压 condenser/60k 预算），用真实数据判定 P2-1 condenser LLM 摘要版 / P2-4 coverage 强拦的优先级
+5. ✅ 大契约压测已完成（2026-11-09,Stripe 612 端点/1538 schema,2 项发现已修,P2-1 降级为真实多轮数据再议——见文末「大契约压测记录」）。遗留新待做:领域知识库按项目/契约的作用域隔离
 
 ---
 
@@ -299,3 +299,50 @@ runner(非 live 非 auto) → events.jsonl 落 directive(agent 事件)
   与 OpenClaw 挂载仍只有 fixture 级验证;
 - `--llm-runtime openai` 无真实网关可用(mcli 实测 404/400);
 - 一次真实样本,非统计意义上的稳定性结论(大契约/多阶段长链路未覆盖)。
+
+---
+
+## 大契约压测记录(2026-11-09,Stripe OpenAPI · 612 端点 / 1538 schema / 7047 字段)
+
+第三个真实规模端到端(公开 Stripe OpenAPI 规范,8.3MB)。压测目标:
+200+ 端点契约压 parser/codegen/上下文链路,用真实数据判定 P2-1
+(condenser LLM 摘要版)/ P2-4(coverage 强拦)优先级。
+
+### 结果
+
+| 环节 | 结果 | 数据 |
+|---|---|---|
+| 契约解析 | ✅ 0.04s 一次消化 | 612 端点/1538 schema/7047 字段 |
+| java codegen + G1 | ✅ ~1s(1539 文件) | 幂等 + manifest 结构忠实 |
+| 跨栈一致性 | ✅ | — |
+| runner --auto | ✅ 12/12 零 blocked,吞吐 612 端点/s | KPI success_rate 1.0 |
+| dispatch context(4000 token 预算) | ✅ 预算守住 | est 1424~2498 < 4000,构建 0.01s |
+
+### 压测暴露的发现(2 项,均已修,commit 99d9a8c)
+
+1. **codegen 资源分组在版本化路径下退化**(✅ 已修):全量 `/v1/*` 按首段
+   分组 → 单个 `V1Controller`(612 方法/3237 行),java/node 两栈同病;
+   G1 只查 manifest 路由/模型忠实,不查组织形态,故放行。修复:
+   `common.resource_groups` 版本前缀感知(跳过 v1/api 段;base 路径含
+   前缀保持路由忠实)。复验:78 个资源 Controller,
+   `@RequestMapping("/v1/charges")` + 子路由正确;小契约行为不变。
+2. **read_contract 输出无界**(✅ 已修):1538 实体全量返回 **178,799
+   字符**(≈4.5 万 token),一次调用即打爆上下文;condenser 触发后保近
+   3 条整条,仍向模型发送 53.7 万字符——**P2-1 的真瓶颈是工具输出
+   无界,不是摘要质量**。修复:概览有界化(实体 ≤200 + entities_offset
+   翻页/schema 明细 ≤50/endpoints ≤100,与 read_file 行窗口、
+   query_symbols top-20 同范式)+ `entity=<name>` 单实体详情模式(全量
+   字段 + 相关端点)。实测 178,799 → **14,511 字符(12.3× 压缩)**,
+   charge 单实体详情 3162 字符/45 字段/5 端点。
+
+### 对路线图的判定(压测的核心产出)
+
+- **P2-1(condenser LLM 摘要版)**:输出侧有界化已落地后,确定性
+  condenser 的剩余压力源是"多轮累计的合理体积",当前无真实多轮数据
+  支撑升级 LLM 摘要——**降级为真实多轮数据再议**。
+- **P2-4(coverage 强拦)**:java 侧 jacoco 采集已就绪(2026-11-06),
+  但本次无真实 stripe 仓库,未新增覆盖率样本;阈值校准仍待多项目数据。
+- **新待做(KB 相关性)**:1538 未知实体场景下 dispatch context 注入了
+  平行产品("全家福")的领域知识(yivote P2-2 验证时子 Agent 同发现并
+  声明不作事实来源)——知识库缺少按项目/契约的作用域隔离,大契约下
+  既浪费预算又有误导面,需要设计级修复(非本次范围)。
