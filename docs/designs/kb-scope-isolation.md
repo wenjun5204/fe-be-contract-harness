@@ -113,7 +113,7 @@ product_id 规范化规则：小写、非字母数字转 `-`、截断 64 字符�
 |---|---|---|
 | backend/frontend/qa `conventions.md` ×3 | `_global/` | 确为跨项目工程约定（错误码规范等），放对了 |
 | `business/family-blessing.md` | `products/fe-backend-mini/business/` | fe_backend_mini 产品的业务规则 |
-| `business/order.md` | `products/fe-backend-mini/business/` | 归属 fe_backend_mini 订单域（订单核心生命周期是全家福项目的订单实现） |
+| `business/order.md` | `_global/business/` | 订单生命周期是跨产品通用域知识（作者评审确认可复用），人工判定为全局 |
 
 迁移以一次性脚本执行 + evals/replay 断言不回归；迁移后旧目录删除（3.2）。
 
