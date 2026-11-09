@@ -166,8 +166,9 @@ npm run demo
 1. ✅ 推送合并已完成（main 与 origin 同步）
 2. ✅ 第二个真实项目已跑（2026-11-06 yivote，java 栈 Stage 8 测试闭环真实验证，4 项发现 3 修 1 待）——见文末「真实契约二跑记录」
 3. ✅ P2-2 Claude Code 挂载已真实验证（2026-11-06,CLI 模式,Stage 1 全门控闭环 + 人工卡点 approve,见文末二跑记录）;OpenClaw 挂载与回调模式真实运行时验证仍待
-4. java 覆盖率采集补齐（jacoco csv 解析，P2-4 前置）
-5. ✅ 大契约压测已完成（2026-11-09,Stripe 612 端点/1538 schema,2 项发现已修,P2-1 降级为真实多轮数据再议——见文末「大契约压测记录」）。遗留新待做:领域知识库按项目/契约的作用域隔离
+4. ✅ java 覆盖率采集补齐（2026-11-09 jacoco csv 权威口径,yivote 实测 81.5%）
+5. ✅ 大契约压测已完成（2026-11-09,Stripe 612 端点/1538 schema,2 项发现已修,P2-1 降级为真实多轮数据再议——见文末「大契约压测记录」）
+6. ✅ 领域知识库作用域隔离已实施（2026-11-09,方案 B 目录即作用域,见文末「KB 作用域隔离实施记录」）。待真实项目累积:P2-4 覆盖率阈值校准、E4 交付复盘、OpenClaw 挂载与回调模式验证
 
 ---
 
@@ -346,3 +347,46 @@ runner(非 live 非 auto) → events.jsonl 落 directive(agent 事件)
   平行产品("全家福")的领域知识(yivote P2-2 验证时子 Agent 同发现并
   声明不作事实来源)——知识库缺少按项目/契约的作用域隔离,大契约下
   既浪费预算又有误导面,需要设计级修复(非本次范围)。
+
+---
+
+## KB 作用域隔离实施记录(2026-11-09,方案 B 目录即作用域)
+
+设计定稿于 docs/designs/kb-scope-isolation.md(方案 B,评审确认 order.md
+为跨产品可复用域知识)。四条根因全部落修:
+
+| 根因 | 修复 | 位置 |
+|---|---|---|
+| #1 convention 恒注入泄漏 | 恒注入保留在 global 层与产品层内部(产品层已被目录圈死,恒注入不再跨产品泄漏) | `context_orchestrator._matches_entity` |
+| #2 KB 无产品维度 | 目录即作用域:`_global/` + `products/<pid>/` + `pending/`,不留旧路径双读 | `domain_knowledge.py` 全面重构 |
+| #3 子串实体匹配误报 | 精确集合交集(entity + entities 列表,大小写不敏感;OrderReturn 不再命中 Order) | `_matches_entity` |
+| #4 E2 写侧全局回流 | drift 回流按 run 的 product 归位 `products/<pid>/`;无法解析 → `pending/` + warning,绝不落 `_global/` | `consistency.drift_check` |
+
+关键机制:
+- **product_id 三级解析链**(`lib/product_scope.py`):显式 `--product` >
+  state.json 固化 > info.title 派生 slug;首跑解析固化,重跑沿用(同产品
+  改 title 不换 scope)。runner 启动时解析,写入 state 并透传 dispatch
+  context / query_knowledge 工具(directive.context.product → llm_dispatch
+  → build_default_tools)。
+- **写侧 fail-closed**:自动写侧(product 未解析)默认 pending/ 悬置,
+  人工经 `confirm_entry --to-global` 显式升级迁移(跨产品通用是人工决策,
+  自动路径永远到不了 _global/)。
+- **迁移**:conventions ×3 + order.md → `_global/`;family-blessing.md →
+  `products/fe-backend-mini/business/`;旧扁平目录删除。
+- **CLI 新增**:`runner --product`、`contract drift --product`、
+  `domain_knowledge write --product/--scope`、`confirm --product/--to-global`、
+  `scopes` / `orphans --known`(孤儿检测一条命令)。
+
+验收(全部通过,217 tests + replay 5/5):
+1. stripe 场景 context 无 FamilyBlessing/福值(`test_kb_scope_isolation_and_exact_entity_match` ①);
+2. yivote 场景 business-knowledge 为空(②);
+3. order.md(全局可复用)经精确实体匹配注入有 Order 实体的契约(①);
+4. OrderReturn 不再子串误报(③);
+5. fe-backend-mini 自己的 run 照常注入全家福知识(④,隔离不是没收);
+6. E2 回流:有 product 落 `products/<pid>/` 且其他产品读不到;无 product
+   落 pending/ 并可人工 to-global 升级(`test_drift_*` 3 组);
+7. 冷启动 product=None 仅全局层(⑤)。
+
+设计取舍记录:产品层条目 type=convention 在自己产品内仍恒注入(全家福
+业务规则包即此形态)——作用域已由目录圈死,恒注入不再构成泄漏;若未来
+单产品知识规模膨胀挤预算,budget_context 的整段取舍机制仍在兜底。

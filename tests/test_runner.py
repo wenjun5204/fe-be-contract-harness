@@ -101,6 +101,32 @@ def test_non_auto_directives_include_budgeted_knowledge_context():
         assert stage_two["context"]["estimated_tokens"] <= 1000
 
 
+def test_product_scope_resolution_and_state_pinning():
+    """方案 B:--product 解析链 + state 固化(重跑沿用,改 title 不换 scope)。"""
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        out = root / "gen"
+        state = root / "state.json"
+        # ① 显式 --product:签发的 directive context 携带 product
+        r = run(EXAMPLE, out, state, ["node"], auto=False, product="petstore-demo")
+        st = read_state(state)
+        assert st["product_id"] == "petstore-demo" and st["product_source"] == "explicit", st
+        directives = {e["stage"]: e["detail"] for e in r["events"] if e["kind"] == "agent"}
+        assert directives["1"]["context"]["product"] == "petstore-demo"
+        # ② 重跑不带 --product:沿用 state 固化(不换 scope)
+        run(EXAMPLE, out, state, ["node"], auto=True)
+        st2 = read_state(state)
+        assert st2["product_id"] == "petstore-demo", st2
+    with tempfile.TemporaryDirectory() as d:
+        # ③ 冷启动:--product 缺省 → info.title 派生并固化
+        root = Path(d)
+        state = root / "state.json"
+        run(EXAMPLE, root / "gen", state, ["node"], auto=True)
+        st3 = read_state(state)
+        title_slug = read_state(state)["product_id"]
+        assert st3["product_source"] == "title" and title_slug, st3
+
+
 def test_non_auto_blocks_at_unmet_prereq():
     """非 auto:LLM 阶段仅签发指令;前置未就绪的确定性阶段被 transition 真实阻断。"""
     with tempfile.TemporaryDirectory() as d:
@@ -322,6 +348,7 @@ def main():
     test_stage8_test_execution_green_path()
     test_stage8_fix_rounds_exhausted_fails()
     test_non_auto_directives_include_budgeted_knowledge_context()
+    test_product_scope_resolution_and_state_pinning()
     test_non_auto_blocks_at_unmet_prereq()
     test_rerun_is_idempotent_resume()
     test_parallel_wave_codegen_thread_safe()

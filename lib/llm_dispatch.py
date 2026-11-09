@@ -210,6 +210,8 @@ def run_llm_stage(
     toolset = tools if tools is not None else build_default_tools(
         contract_path=directive.get("contract") or contract_path,
         workdir=workdir,
+        # KB 作用域隔离:product 由 runner 解析并写入 dispatch context,随指令透传
+        product=(directive.get("context") or {}).get("product"),
     )
 
     # 1. receipt 登记防伪 + start(前置校验)

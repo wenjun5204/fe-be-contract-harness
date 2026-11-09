@@ -50,13 +50,17 @@ def cross_stack_check(contract_path: str | Path, stacks: Optional[List[str]] = N
     }
 
 
-def drift_check(contract_path: str | Path, stack: str, gen_dir: str | Path) -> dict:
+def drift_check(contract_path: str | Path, stack: str, gen_dir: str | Path,
+                product: Optional[str] = None) -> dict:
     """漂移检测:重生成期望产物,与磁盘上已有 codegen-manifest.json 对比。
 
     E2 知识回流:检出真实漂移(非"缺 manifest")时自动写一条 backend assumption
     条目——下次同栈阶段的 dispatch context 可见"上次漂移记录"。AI 推断一律
     assumption,升级 confirmed 必须人经 confirm_entry(三方分工)。
     落库失败不影响检测结果(回流是旁路,不阻断主流程)。
+
+    作用域归位(方案 B §3.5):product 已解析 → products/<pid>/(E2 写侧主路径);
+    无法解析 → pending/ 兜底并附 warning,绝不落 _global/。
     """
     model = parse_contract(contract_path)
     adapter = get_adapter(stack)
@@ -104,8 +108,17 @@ def drift_check(contract_path: str | Path, stack: str, gen_dir: str | Path) -> d
             }
             # 幂等:同 id 重复检出覆盖更新(assumption 内容是最新漂移状态,无历史价值;
             # find_conflicts 防线只对 confirmed 生效,assumption 覆盖不越权)
-            write_entry(payload, mode="replace")
-            result["knowledge_feedback"] = "assumption 条目已落库(待人工 confirm)"
+            # 作用域归位:product → products/<pid>/;无 product → pending/ 兜底(fail-closed,
+            # 绝不默认落 _global/——跨产品通用化只能人工显式决策)
+            if product:
+                write_entry(payload, mode="replace", product=product)
+                result["knowledge_feedback"] = f"assumption 条目已落库(products/{product}/,待人工 confirm)"
+            else:
+                write_entry(payload, mode="replace", scope="pending")
+                result["knowledge_feedback"] = (
+                    "assumption 条目已落库 pending/(product 未解析,请人工归位;"
+                    "运行 runner 请带 --product 或确认契约 info.title)"
+                )
         except Exception as e:  # noqa: BLE001 —— 回流旁路,失败不阻断检测
             result["knowledge_feedback"] = f"回流失败(不影响检测): {e}"
     return result

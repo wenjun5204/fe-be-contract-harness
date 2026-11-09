@@ -74,26 +74,42 @@ def orchestrate(stage: str, sections: Dict[str, str], max_tokens: Optional[int] 
     return "\n\n".join(f"--- {item['name']} ---\n{item['text']}" for item in items)
 
 
+def _declared_entities(entry: dict) -> set:
+    """条目声明的实体名集合(entity 单值 + entities 列表,统一小写)。"""
+    declared = set()
+    if entry.get("entity"):
+        declared.add(str(entry["entity"]).lower())
+    for name in entry.get("entities") or []:
+        if name:
+            declared.add(str(name).lower())
+    return declared
+
+
 def _matches_entity(entry: dict, terms: Iterable[str]) -> bool:
-    # 跨实体工程约定应始终进入对应 domain，实体规则才按当前契约过滤。
+    """实体精确集合交集(方案 B §3.4,替换子串 contains)。
+
+    根因 #3 修复:旧子串匹配让 stripe 的 order_return 误命中 entity Order(双向误报)。
+    收紧为精确比对后:全局层 order.md(entity=Order)只在契约真有 Order 实体时注入。
+    - type=convention → 恒注入(跨实体工程约定;产品私有业务规则包也惯用此标签,
+      但作用域层已把它圈在 products/<pid>/ 内,恒注入不再泄漏跨产品)
+    - 条目未声明实体 / 契约未识别实体 → 不过滤(冷启动可用,fail-open 只在无信息面)
+    """
     if entry.get("type") == "convention":
         return True
+    declared = _declared_entities(entry)
     normalized = {term.lower() for term in terms if term}
-    if not normalized:
+    if not declared or not normalized:
         return True
-    searchable = " ".join([
-        str(entry.get("entity", "")),
-        str(entry.get("id", "")),
-        entry.get("content", ""),
-        " ".join(str(field.get("name", "")) for field in entry.get("fields", [])),
-    ]).lower()
-    return any(term in searchable for term in normalized)
+    return bool(declared & normalized)
 
 
-def _domain_text(domain: str, entities: List[str], warnings: List[str]) -> str:
+def _domain_text(domain: str, entities: List[str], warnings: List[str], product: Optional[str] = None) -> str:
     from lib.domain_knowledge import load_entries, render_entry
     try:
-        entries = [entry for entry in load_entries(domain) if entry.get("status") == "confirmed" and _matches_entity(entry, entities)]
+        entries = [
+            entry for entry in load_entries(domain, product=product)
+            if entry.get("status") == "confirmed" and _matches_entity(entry, entities)
+        ]
     except (OSError, ValueError) as exc:
         warnings.append(f"无法加载 {domain} 领域知识: {exc}")
         return ""
@@ -125,11 +141,15 @@ def build_dispatch_context(
     entities: Optional[Iterable[str]] = None,
     repo: Optional[str | Path] = None,
     max_tokens: int = 4000,
+    product: Optional[str] = None,
 ) -> dict:
     """构造可直接交给子 Agent 的上下文包。
 
     领域知识按契约 schema 名称与显式实体过滤；仓库知识只读取当前阶段需要的 section。
     缺少可选知识不会阻断派发，而会写入 warnings，保证冷启动可用。
+
+    作用域隔离(方案 B):product=<pid> 时知识 = _global/ ∪ products/<pid>/;
+    其他产品的知识物理上不读取。product=None(冷启动未解析)→ 仅 _global/。
     """
     entity_list = sorted({entity for entity in (entities or []) if entity})
     warnings: List[str] = []
@@ -138,7 +158,7 @@ def build_dispatch_context(
     }
     for section, domain in DOMAIN_SECTION.items():
         if section in select_sections(stage):
-            raw_sections[section] = _domain_text(domain, entity_list, warnings)
+            raw_sections[section] = _domain_text(domain, entity_list, warnings, product)
     if repo:
         repo_path = Path(repo).expanduser().resolve()
         if not repo_path.is_dir():
@@ -157,6 +177,7 @@ def build_dispatch_context(
         "schema": "dispatch-context/v1",
         "stage": stage,
         "entities": entity_list,
+        "product": product,
         "repo": str(Path(repo).expanduser().resolve()) if repo else None,
         "max_tokens": max_tokens,
         "estimated_tokens": sum(estimate_tokens(item["text"]) for item in kept),

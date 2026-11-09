@@ -68,33 +68,61 @@ def test_drift_check():
 
 
 def test_drift_writes_assumption_feedback():
-    """E2 知识回流:真实漂移 → backend assumption 条目落库;无漂移/缺 manifest 不写。"""
+    """E2 知识回流:真实漂移 → backend assumption 条目按产品作用域落库;
+    无漂移/缺 manifest 不写。方案 B:product 归位 products/<pid>/,
+    无 product → pending/ 兜底(绝不落 _global/)。"""
     with tempfile.TemporaryDirectory() as d, _isolated_kb(d):
         write_out(EXAMPLE, "node", d)
         # 无漂移 → 不写
-        r = drift_check(EXAMPLE, "node", d)
+        r = drift_check(EXAMPLE, "node", d, product="petstore")
         assert r["ok"] and "knowledge_feedback" not in r, r
-        # 真实漂移 → assumption 落库
+        # 真实漂移 → assumption 落库(products/petstore/)
+        mp = Path(d) / "codegen-manifest.json"
+        data = json.loads(mp.read_text(encoding="utf-8"))
+        data["routes"] = ["only_one_route"]
+        mp.write_text(json.dumps(data), encoding="utf-8")
+        r = drift_check(EXAMPLE, "node", d, product="petstore")
+        assert not r["ok"] and "products/petstore" in r["knowledge_feedback"], r
+        entries = [e for e in dk.load_entries("backend", dk.KB_DIR, product="petstore")
+                   if e["id"] == "drift-node-petstore"]
+        assert entries and entries[0]["status"] == "assumption", entries
+        assert entries[0]["source"] == "drift_check"
+        assert entries[0]["scope"] == "product"
+        assert "routes_drift=True" in entries[0]["content"]
+        # 其他产品读不到这条漂移知识(隔离)
+        assert not [e for e in dk.load_entries("backend", dk.KB_DIR, product="other")
+                    if e["id"] == "drift-node-petstore"]
+        # 同 id 重复检出 → 幂等覆盖,不报错
+        r = drift_check(EXAMPLE, "node", d, product="petstore")
+        assert not r["ok"] and "已落库" in r["knowledge_feedback"], r
+        assert len([e for e in dk.load_entries("backend", dk.KB_DIR, product="petstore")
+                    if e["id"] == "drift-node-petstore"]) == 1
+        # 缺 manifest → 不写回流(缺生成物不是知识,是噪音)
+        mp.unlink()
+        r = drift_check(EXAMPLE, "node", d, product="petstore")
+        assert not r["ok"] and "缺少" in r.get("reason", ""), r
+
+
+def test_drift_without_product_lands_in_pending():
+    """写侧 fail-closed:product 无法解析 → pending/ 兜底 + warning,绝不落 _global/。"""
+    with tempfile.TemporaryDirectory() as d, _isolated_kb(d):
+        write_out(EXAMPLE, "node", d)
         mp = Path(d) / "codegen-manifest.json"
         data = json.loads(mp.read_text(encoding="utf-8"))
         data["routes"] = ["only_one_route"]
         mp.write_text(json.dumps(data), encoding="utf-8")
         r = drift_check(EXAMPLE, "node", d)
-        assert not r["ok"] and "已落库" in r["knowledge_feedback"], r
-        entries = [e for e in dk.load_entries("backend", dk.KB_DIR)
-                   if e["id"] == "drift-node-petstore"]
-        assert entries and entries[0]["status"] == "assumption", entries
-        assert entries[0]["source"] == "drift_check"
-        assert "routes_drift=True" in entries[0]["content"]
-        # 同 id 重复检出 → 幂等覆盖,不报错
-        r = drift_check(EXAMPLE, "node", d)
-        assert not r["ok"] and "已落库" in r["knowledge_feedback"], r
-        assert len([e for e in dk.load_entries("backend", dk.KB_DIR)
-                    if e["id"] == "drift-node-petstore"]) == 1
-        # 缺 manifest → 不写回流(缺生成物不是知识,是噪音)
-        mp.unlink()
-        r = drift_check(EXAMPLE, "node", d)
-        assert not r["ok"] and "缺少" in r.get("reason", ""), r
+        assert not r["ok"] and "pending" in r["knowledge_feedback"], r
+        assert "product 未解析" in r["knowledge_feedback"], r
+        # 落在 pending/(悬置待人工归位),任何产品读侧都看不到
+        assert (dk.KB_DIR / "pending" / "backend" / "drift-node-petstore.md").is_file()
+        assert not dk.load_entries("backend", dk.KB_DIR)
+        assert not (dk.KB_DIR / "_global" / "backend").exists() or not any(
+            (dk.KB_DIR / "_global" / "backend").glob("drift-*.md")), "漂移知识绝不能落 _global/"
+        # 人工 confirm 可将其显式升级迁移(to_global)
+        res = dk.confirm_entry("backend", "drift-node-petstore", "liuwenjun05", dk.KB_DIR, to_global=True)
+        assert res["scope"] == "global", res
+        assert not (dk.KB_DIR / "pending" / "backend" / "drift-node-petstore.md").exists()
 
 
 def main():
@@ -102,7 +130,8 @@ def main():
     test_cross_stack()
     test_drift_check()
     test_drift_writes_assumption_feedback()
-    print("OK: consistency 自测通过(4 组断言)")
+    test_drift_without_product_lands_in_pending()
+    print("OK: consistency 自测通过(5 组断言)")
 
 
 if __name__ == "__main__":

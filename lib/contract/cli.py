@@ -48,6 +48,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     d.add_argument("contract")
     d.add_argument("--stack", required=True)
     d.add_argument("--gen-dir", required=True)
+    d.add_argument("--product", default=None, help="产品作用域(E2 回流归位 products/<pid>/;缺省落 pending/ 待人工归位)")
 
     live_p = sub.add_parser("live", help="运行时契约校验(拉取服务导出的 OpenAPI 文档比对,抓序列化漂移)")
     live_p.add_argument("contract")
@@ -72,7 +73,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["ok"] else 1
     elif args.cmd == "drift":
-        result = drift_check(args.contract, args.stack, args.gen_dir)
+        result = drift_check(args.contract, args.stack, args.gen_dir, product=args.product)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["ok"] else 1
     elif args.cmd == "live":

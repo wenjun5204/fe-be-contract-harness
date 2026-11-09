@@ -80,13 +80,81 @@ def test_build_dispatch_context_respects_budget():
     assert context["omitted_sections"], context
 
 
+def test_kb_scope_isolation_and_exact_entity_match():
+    """方案 B 回归(两根因的验收):
+    - 根因 #1(convention 恒注入泄漏):产品私有知识不再进入其他产品的 context;
+    - 根因 #3(子串匹配误报):OrderReturn 不再命中 entity Order;
+    - 产品自己的知识(convention 型业务规则包)在自己的 run 中照常注入。
+    """
+    import contextlib
+
+    import lib.domain_knowledge as dk
+
+    @contextlib.contextmanager
+    def _kb(tmpdir):
+        backup = dk.KB_DIR
+        dk.KB_DIR = Path(tmpdir) / "kb"
+        try:
+            yield
+        finally:
+            dk.KB_DIR = backup
+
+    with tempfile.TemporaryDirectory() as d:
+        with _kb(d):
+            # _global:跨项目约定 + 可复用订单域知识;products/fe-backend-mini:全家福
+            dk.write_entry({
+                "id": "global-conventions", "domain": "backend", "entity": "ApiConvention",
+                "type": "convention", "status": "confirmed", "source": "user",
+                "fields": [], "states": [], "error_codes": [],
+                "content": "统一错误码规范:400 参数错误。",
+            }, scope="global")
+            dk.write_entry({
+                "id": "order-core", "domain": "business", "entity": "Order",
+                "type": "lifecycle", "status": "confirmed", "source": "user",
+                "fields": [{"name": "amount", "type": "integer"}], "states": [], "error_codes": [],
+                "content": "订单金额按分存储。",
+            }, scope="global")
+            dk.write_entry({
+                "id": "family-blessing-v15", "domain": "business", "entity": "FamilyBlessing",
+                "type": "convention", "status": "confirmed", "source": "user",
+                "fields": [], "states": [], "error_codes": [],
+                "content": "福值只涨不跌,所有变更走 BlessEvent 事件路径。",
+            }, product="fe-backend-mini")
+
+            # ① stripe run(有 Order 实体):全局注入、order.md 命中、全家福不可见
+            # (stage 2 同时覆盖 business/backend 知识段,验证两层注入口径一致)
+            ctx = build_dispatch_context("2", "stripe.json", ["Order", "Charge"], product="stripe")
+            assert "订单金额按分存储" in ctx["text"], ctx["text"]
+            assert "统一错误码规范" in ctx["text"]
+            assert "福值" not in ctx["text"] and "FamilyBlessing" not in ctx["text"], "跨产品泄漏!"
+            assert ctx["product"] == "stripe"
+
+            # ② yivote run(无 Order 实体):business 为空——不能拿别人的知识凑数
+            ctx2 = build_dispatch_context("1", "yivote.json", ["Vote"], product="yivote")
+            names2 = [s["name"] for s in ctx2["sections"]]
+            assert "business-knowledge" not in names2, names2
+
+            # ③ 子串误报修复:OrderReturn ≠ Order
+            ctx3 = build_dispatch_context("1", "stripe.json", ["OrderReturn"], product="stripe")
+            assert "business-knowledge" not in [s["name"] for s in ctx3["sections"]], "子串误报回归!"
+
+            # ④ 全家福自己的 run:照常注入(隔离不是没收)
+            ctx4 = build_dispatch_context("1", "mini.json", ["FamilyBlessing"], product="fe-backend-mini")
+            assert "福值只涨不跌" in ctx4["text"], ctx4["text"]
+
+            # ⑤ 冷启动(product=None):仅全局层
+            ctx5 = build_dispatch_context("1", "cold.json", ["Order"])
+            assert "订单金额按分存储" in ctx5["text"] and "福值" not in ctx5["text"]
+
+
 def main():
     test_select_sections()
     test_budget_context()
     test_orchestrate()
     test_build_dispatch_context_filters_entities_and_repo_sections()
     test_build_dispatch_context_respects_budget()
-    print("OK: context_orchestrator 自测通过(5 组断言)")
+    test_kb_scope_isolation_and_exact_entity_match()
+    print("OK: context_orchestrator 自测通过(6 组断言)")
 
 
 if __name__ == "__main__":

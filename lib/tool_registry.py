@@ -268,18 +268,19 @@ def _consistency_check_fn(args: dict) -> dict:
     return report
 
 
-def _query_knowledge_fn(args: dict) -> dict:
+def _query_knowledge_fn(args: dict, product: Optional[str] = None) -> dict:
     from lib.domain_knowledge import load_entries, render_entry
     domain = args["domain"]
     entity = (args.get("entity") or "").strip()
     entries = [
-        e for e in load_entries(domain)
+        e for e in load_entries(domain, product=product)
         if e.get("status") == "confirmed"
         and (not entity or entity.lower() in json.dumps(e, ensure_ascii=False).lower())
     ]
     return {
         "ok": True,
         "domain": domain,
+        "product": product,
         "matched": len(entries),
         "entries": [render_entry(e).strip() for e in entries],
     }
@@ -369,8 +370,13 @@ def _run_tests_fn(workdir: Path, args: dict) -> dict:
 def build_default_tools(
     contract_path: Optional[str | Path] = None,
     workdir: Optional[str | Path] = None,
+    product: Optional[str] = None,
 ) -> ToolRegistry:
-    """构造 LLM 阶段默认工具集。workdir 缺省为当前目录(文件工具的边界根)。"""
+    """构造 LLM 阶段默认工具集。workdir 缺省为当前目录(文件工具的边界根)。
+
+    product:当前 run 的产品作用域(KB 隔离)——query_knowledge 只检索
+    _global/ ∪ products/<pid>/(方案 B,读侧与 dispatch context 同口径)。
+    """
     workdir = Path(workdir) if workdir else Path.cwd()
     registry = ToolRegistry()
     registry.register(Tool(
@@ -416,7 +422,7 @@ def build_default_tools(
     ))
     registry.register(Tool(
         name="query_knowledge",
-        description="按 domain 与实体关键词检索已确认的领域知识条目。",
+        description="按 domain 与实体关键词检索已确认的领域知识条目(作用域=全局工程约定∪当前产品私有知识)。",
         parameters={
             "type": "object",
             "properties": {
@@ -425,7 +431,7 @@ def build_default_tools(
             },
             "required": ["domain"],
         },
-        fn=_query_knowledge_fn,
+        fn=lambda args: _query_knowledge_fn(args, product),
     ))
     registry.register(Tool(
         name="read_file",

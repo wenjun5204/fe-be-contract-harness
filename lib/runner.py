@@ -235,11 +235,12 @@ def _directive(
     entities: Optional[List[str]] = None,
     repo: Optional[str | Path] = None,
     context_max_tokens: int = 4000,
+    product: Optional[str] = None,
 ) -> dict:
     """为 LLM 阶段生成包含受预算知识上下文的委派指令。"""
     subagents = _stage_subagents(stage, policy)
     receipt = issue_receipt(stage, subagents, token="runner")
-    context = build_dispatch_context(stage, contract, entities, repo, context_max_tokens)
+    context = build_dispatch_context(stage, contract, entities, repo, context_max_tokens, product)
     return {
         "stage": stage,
         "subagent": subagents[0] if len(subagents) == 1 else None,
@@ -338,9 +339,10 @@ def _run_llm_stage(
     llm_max_turns: int,
     auto: bool,
     events: "_EventLog",
+    product: Optional[str] = None,
 ) -> None:
     """LLM 阶段统一入口:默认仅签发 directive;--live 时经 tool calling 循环真实执行。"""
-    directive = _directive(sid, policy, str(contract), entities, repo, context_max_tokens)
+    directive = _directive(sid, policy, str(contract), entities, repo, context_max_tokens, product)
     if not live:
         events.emit({"stage": sid, "kind": "agent", "detail": directive})
         return
@@ -370,6 +372,7 @@ def run(
     llm_runtime: str = "mock",
     llm_script: Optional[str | Path] = None,
     llm_max_turns: int = 12,
+    product: Optional[str] = None,
 ) -> dict:
     contract = Path(contract)
     state_file = Path(state_file)
@@ -393,6 +396,18 @@ def run(
     # KPI 观测:契约规模(需求吞吐的分母)——复用已 parse 的模型,零额外计算;
     # 已存在则不覆盖(重跑 resume 时保持首次口径)
     state = read_state(state_file)
+
+    # KB 作用域解析(方案 B §3.3):显式 --product > state 固化 > title 派生;
+    # 首次解析结果固化进 state(同产品改 title 不换 scope),重跑沿用
+    from lib.product_scope import resolve_product_id
+    product_id, product_source = resolve_product_id(product, contract_model, state)
+    if product_id and not state.get("product_id"):
+        state["product_id"] = product_id
+        state["product_source"] = product_source
+        from lib.state_manager import write_state
+        write_state(state_file, state)
+    product = product_id  # 后续 directive/一致性检查统一用解析后的 pid(可能为 None)
+
     if not state.get("contract_stats"):
         schemas = contract_model.get("schemas", {})
         state["contract_stats"] = {
@@ -491,7 +506,7 @@ def run(
             _run_llm_stage(
                 state_file, "8", policy, contract, entities, repo, context_max_tokens,
                 live=False, llm_runtime=llm_runtime, llm_script=llm_script,
-                llm_max_turns=llm_max_turns, auto=auto, events=events,
+                llm_max_turns=llm_max_turns, auto=auto, events=events, product=product,
             )
             return
         mock_uncovered_8 = (
@@ -535,7 +550,7 @@ def run(
                 "receipt": issue_receipt("8", subagents, token="runner"),
                 "contract": str(contract),
                 "context": build_dispatch_context(
-                    "8", str(contract), entities, repo, context_max_tokens,
+                    "8", str(contract), entities, repo, context_max_tokens, product,
                 ),
                 "note": "测试失败,需 analyzer 归因 + fixer 修复(runner 内循环第 "
                         f"{fix_rounds} 轮)",
@@ -661,7 +676,7 @@ def run(
                 _run_llm_stage(
                     state_file, sid, policy, contract, entities, repo, context_max_tokens,
                     live=live, llm_runtime=llm_runtime, llm_script=llm_script,
-                    llm_max_turns=llm_max_turns, auto=auto, events=events,
+                    llm_max_turns=llm_max_turns, auto=auto, events=events, product=product,
                 )
 
     # ---- 数据驱动主循环:按 DAG 拓扑波次执行(工作流定义与执行解耦) ----
@@ -703,6 +718,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     r.add_argument("--llm-runtime", default="mock", choices=["mock", "openai"], help="LLM 运行时:mock=脚本驱动,openai=OpenAI 兼容网关")
     r.add_argument("--llm-script", default=None, help="mock 运行时脚本(JSON,支持 stages.<stage> 分阶段步骤数组)")
     r.add_argument("--llm-max-turns", type=int, default=12, help="单阶段 tool calling 最大轮次")
+    r.add_argument("--product", default=None,
+                   help="产品作用域 id(KB 隔离):知识注入=_global/∪products/<pid>/;缺省由 info.title 派生并固化 state")
 
     s = sub.add_parser("status", help="查看状态")
     s.add_argument("--state", default="state.json")
@@ -719,7 +736,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             args.contract, args.out, args.state, stacks, auto=args.auto, repo=args.repo,
             context_max_tokens=args.context_max_tokens, live=args.live,
             llm_runtime=args.llm_runtime, llm_script=args.llm_script,
-            llm_max_turns=args.llm_max_turns,
+            llm_max_turns=args.llm_max_turns, product=args.product,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
